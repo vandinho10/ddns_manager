@@ -350,6 +350,35 @@ bool eh_ipv4(const std::string& texto)
     return partes == 4;
 }
 
+bool eh_ipv6(const std::string& texto)
+{
+    if (texto.empty())
+        return false;
+    bool tem_dois_pontos = false;
+    bool ultimo_era_ponto = false;
+    int pontos_seguidos = 0;
+    for (char c : texto)
+    {
+        if (c == ':')
+        {
+            tem_dois_pontos = true;
+            if (ultimo_era_ponto)
+                ++pontos_seguidos;
+            else
+                pontos_seguidos = 1;
+            ultimo_era_ponto = true;
+            continue;
+        }
+        const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                         (c >= 'A' && c <= 'F');
+        if (!hex)
+            return false;
+        ultimo_era_ponto = false;
+    }
+    // Permite "::" (compressao) mas nao ":::" nem ":" repetido incorretamente.
+    return tem_dois_pontos && pontos_seguidos <= 2;
+}
+
 bool obter_ip_publico(std::string& ip)
 {
     const std::string corpo = http_get("https://api.ipify.org", TIMEOUT_HTTP);
@@ -359,24 +388,183 @@ bool obter_ip_publico(std::string& ip)
     return eh_ipv4(ip);
 }
 
-bool notificar_worker(const std::string& api_url, const std::string& dominio,
-                      const std::string& auth_key, const std::string& novo_ip,
+bool obter_ipv6_publico(std::string& ip)
+{
+    const std::string corpo = http_get("https://api6.ipify.org", TIMEOUT_HTTP);
+    if (corpo.empty())
+        return false;
+    ip = parear_ip(corpo);
+    return eh_ipv6(ip);
+}
+
+namespace {
+
+// Converte para minusculas sem depender de <cctype> (portavel p/ mingw).
+std::string para_minusculas(const std::string& s)
+{
+    std::string out = s;
+    for (char& c : out)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c + ('a' - 'A'));
+    return out;
+}
+
+// Extrai a mensagem de erro de uma entrada de "updates" do Worker.
+std::string mensagem_erro_update(const json::Value& upd)
+{
+    if (upd.tem("error"))
+        return upd.as_string("error", "atualizacao falhou");
+    if (upd.tem("errors") && upd.get("errors").is_array() && upd.get("errors").size() > 0)
+    {
+        std::string out;
+        const json::Value& erros = upd.get("errors");
+        const size_t limite = erros.size() < 3 ? erros.size() : 3;
+        for (size_t i = 0; i < limite; ++i)
+        {
+            const json::Value& e = erros.item(i);
+            std::string msg;
+            if (e.is_objeto() && e.tem("message"))
+                msg = e.as_string("message", "");
+            else if (e.is_string() || e.is_outro())
+                msg = e.raw();
+            if (!msg.empty())
+            {
+                if (!out.empty())
+                    out += "; ";
+                out += msg;
+            }
+        }
+        if (!out.empty())
+            return out;
+    }
+    return "atualizacao falhou";
+}
+
+} // namespace
+
+std::string montar_payload_worker(const std::string& auth_key,
+                                  const std::vector<DadosDominio>& dominios)
+{
+    json::Value dominio_payload = json::Value::objeto();
+    for (const auto& d : dominios)
+    {
+        json::Value ips = json::Value::objeto();
+        if (!d.ipv4.empty())
+            ips.set("ipv4", json::Value::de_string(d.ipv4));
+        if (!d.ipv6.empty())
+            ips.set("ipv6", json::Value::de_string(d.ipv6));
+        dominio_payload.set(d.dominio, ips);
+    }
+    json::Value payload = json::Value::objeto();
+    payload.set("auth_key", json::Value::de_string(auth_key));
+    payload.set("domains", dominio_payload);
+    return payload.dump();
+}
+
+bool interpretar_resposta_worker(const std::string& resposta,
+                                 const std::vector<DadosDominio>& dominios,
+                                 std::vector<ResultadoDominio>& resultados)
+{
+    resultados.clear();
+
+    json::Value corpo;
+    try
+    {
+        corpo = json::Value::parse(resposta);
+    }
+    catch (const json::Erro&)
+    {
+        return false;
+    }
+
+    if (!corpo.is_objeto() || !corpo.tem("results") || !corpo.get("results").is_array())
+        return false;
+
+    // O Worker responde 2xx mesmo quando ha falhas por dominio; o estado real
+    // esta em "results[]": each entry {domain} com "success":false+"error" ou
+    // "updates":[{type,content,success,errors?},...].
+    const json::Value& results = corpo.get("results");
+    for (const auto& d : dominios)
+    {
+        ResultadoDominio rd;
+        rd.dominio = d.dominio;
+        rd.sucesso = false;
+
+        const std::string alvo = para_minusculas(::ddns::trim(d.dominio));
+        for (size_t i = 0; i < results.size(); ++i)
+        {
+            const json::Value& r = results.item(i);
+            if (!r.is_objeto())
+                continue;
+            const std::string nome = para_minusculas(::ddns::trim(r.as_string("domain", "")));
+            if (nome != alvo)
+                continue;
+
+            if (r.tem("updates") && r.get("updates").is_array())
+            {
+                const json::Value& updates = r.get("updates");
+                if (updates.size() == 0)
+                {
+                    rd.erro = "nenhum registro configurado para o dominio";
+                }
+                else
+                {
+                    for (size_t j = 0; j < updates.size(); ++j)
+                    {
+                        const json::Value& u = updates.item(j);
+                        const bool sucesso = u.is_objeto() && u.tem("success") &&
+                                             u.get("success").raw() == "true";
+                        if (sucesso)
+                            continue;
+                        rd.erro = mensagem_erro_update(u);
+                        break;
+                    }
+                    rd.sucesso = rd.erro.empty();
+                }
+            }
+            else if (r.tem("success") && r.get("success").raw() == "true")
+            {
+                rd.sucesso = true;
+            }
+            else
+            {
+                rd.erro = r.as_string("error", "dominio nao autorizado ou nao listado");
+            }
+            break;
+        }
+
+        if (rd.erro.empty() && !rd.sucesso)
+            rd.erro = "sem resposta do Worker para o dominio";
+        resultados.push_back(rd);
+    }
+
+    return true;
+}
+
+bool notificar_worker(const std::string& api_url, const std::string& auth_key,
+                      const std::vector<DadosDominio>& dominios,
+                      std::vector<ResultadoDominio>& resultados,
                       std::string& erro)
 {
-    // Payload esperado pelo Worker: {"domain":..., "auth_key":..., "new_ip":...}
-    json::Value payload = json::Value::objeto();
-    payload.set("domain", json::Value::de_string(dominio));
-    payload.set("auth_key", json::Value::de_string(auth_key));
-    payload.set("new_ip", json::Value::de_string(novo_ip));
+    resultados.clear();
+    erro.clear();
+
+    const std::string corpo = montar_payload_worker(auth_key, dominios);
 
     long http = 0;
     std::string resposta;
-    if (!http_post_json(api_url, payload.dump(), TIMEOUT_HTTP, http, resposta))
+    if (!http_post_json(api_url, corpo, TIMEOUT_HTTP, http, resposta))
     {
         std::string detalhe = ::ddns::trim(resposta);
         erro = "HTTP " + std::to_string(http);
         if (!detalhe.empty())
             erro += " - " + detalhe;
+        return false;
+    }
+
+    if (!interpretar_resposta_worker(resposta, dominios, resultados))
+    {
+        erro = "resposta do Worker em formato invalido: " + ::ddns::trim(resposta);
         return false;
     }
     return true;

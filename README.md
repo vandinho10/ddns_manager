@@ -1,11 +1,13 @@
 # ddns_manager — DDNS Seguro via Worker Cloudflare (C++17)
 
 **ddns_manager** é um cliente de atualização dinâmica de DNS (DDNS) em
-**C++17** que descobre o IP público atual (`https://api.ipify.org`), notifica
-um Worker do Cloudflare (`POST` JSON com `domain`, `auth_key` e `new_ip`) e
-mantém o cadastro de domínios em um **cofre de credenciais totalmente
-criptografado** (`ddns_vault.enc`) com **AES-256-CBC + PBKDF2-HMAC-SHA256**,
-protegido por uma única **Senha Mestra**.
+**C++17** que descobre os IPs públicos atuais (`https://api.ipify.org` e
+`https://api6.ipify.org`) e notifica um Worker do Cloudflare com o payload
+`POST` JSON no formato `{"auth_key":..., "domains":{<domínio>:{ipv4, ipv6}}}`,
+atualizando os registros **A** e **AAAA** de cada domínio. O cadastro de
+domínios é mantido em um **cofre de credenciais totalmente criptografado**
+(`ddns_vault.enc`) com **AES-256-CBC + PBKDF2-HMAC-SHA256**, protegido por uma
+única **Senha Mestra**.
 
 Foi refatorado para ser compilável no maior número possível de distribuições
 Linux (Ubuntu, Debian, Fedora, Arch, Alpine, openSUSE etc.) **e no Windows**,
@@ -18,6 +20,9 @@ criptografado é idêntico entre todas as plataformas.
 
 - **Gestão dinâmica de credenciais via CLI** — `--add`/`--update`, `--list`,
   `--remove`, sem recompilar ou recriar o cofre.
+- **Atualização A + AAAA** — detecta IPv4 e IPv6 públicos e envia ambos no
+  formato aceito pelo Worker (`domains.<nome>.ipv4/ipv6`), atualizando os
+  registros correspondentes.
 - **Criptografia robusta** — AES-256-CBC + PBKDF2-HMAC-SHA256 (salt 8 bytes
   aleatório, 120.000 iterações), única Senha Mestra; arquivo gravado com
   permissão `0600`.
@@ -37,9 +42,9 @@ criptografado é idêntico entre todas as plataformas.
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.0.0)
+make              # build otimizado de release (v1.1.0)
 make check        # análise estática -Werror (zero warnings)
-make test         # suíte table-driven (101 checks)
+make test         # suíte table-driven (133 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer
 make install      # instala em /usr/local/bin/ddns_manager (requer sudo)
 ```
