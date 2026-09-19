@@ -4,7 +4,7 @@ WARN     := -Wall -Wextra -Wpedantic
 OPTFLAGS := -O2
 DBGFLAGS := -O0 -g
 
-VERSION  := 1.2.0-rc.1
+VERSION  := 1.2.0-rc.2
 TARGET   := ddns_manager
 TESTBIN  := tests/test_runner
 TESTBIN_SAN := tests/test_runner_san

@@ -123,15 +123,15 @@ need_gh_auth() {
 
 # Le a Senha Mestra sem eco e com confirmacao.
 prompt_password() {
-  [[ -t 0 ]] || die "sem TTY para ler a senha; use --password-stdin ou defina DDNS_MASTER_PASSWORD"
-  local p1 p2
+  local p1="" p2=""
   printf 'Senha Mestra do cofre: ' >&2
-  IFS= read -rs p1 || die "falha ao ler a senha"
+  read_interactive -s p1
   printf '\n' >&2
   printf 'Confirme a Senha Mestra: ' >&2
-  IFS= read -rs p2 || die "falha ao ler a senha"
+  read_interactive -s p2
   printf '\n' >&2
-  [[ -n "$p1" ]] || die "senha vazia"
+  [[ -n "$p1" ]] \
+    || die "sem terminal para ler a senha; informe a origem via --password-stdin ou DDNS_MASTER_PASSWORD"
   [[ "$p1" == "$p2" ]] || die "as senhas nao conferem"
   printf '%s' "$p1"
 }
@@ -175,6 +175,18 @@ write_text() {
   chmod "$mode" -- "$path"
 }
 
+# Leitura interativa que funciona mesmo quando o script chega via pipe
+# (curl | bash): usa /dev/tty quando disponivel, senao o stdin.
+read_interactive() {
+  local opt=""
+  [[ "${1:-}" == "-s" ]] && { opt="-s"; shift; }
+  if [[ -e /dev/tty ]]; then
+    IFS= read -r $opt "$1" < /dev/tty
+  else
+    IFS= read -r $opt "$1"
+  fi
+}
+
 # ------------------------------------------------------------------ #
 # Deteccao de plataforma / tag                                       #
 # ------------------------------------------------------------------ #
@@ -195,12 +207,14 @@ detect_tag() {
 
 latest_tag() {
   local tag=""
-  if need_gh_auth; then
-    tag="$(gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null || true)"
-  fi
-  if [[ -z "$tag" ]] && command -v curl >/dev/null 2>&1; then
+  # Prefere o endpoint "latest" (exclui pre-releases), que reflete a versao
+  # estavel a ser instalada por padrao.
+  if command -v curl >/dev/null 2>&1; then
     tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-      | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+      | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)" || true
+  fi
+  if [[ -z "$tag" ]] && need_gh_auth; then
+    tag="$(gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null || true)"
   fi
   [[ -n "$tag" ]] || die "nao foi possivel determinar a ultima versao (informe --version)"
   printf '%s' "$tag"
@@ -220,8 +234,8 @@ download_asset() {
   else
     require_cmd curl
     local url="https://github.com/$REPO/releases/download/$TAG/$asset"
-    log "baixando $url ..."
-    curl -fL --retry 3 --connect-timeout 15 -o "$destdir/$asset" "$url" \
+    log "baixando $url ... (silencioso)"
+    curl -fsSL --retry 3 --connect-timeout 15 -o "$destdir/$asset" "$url" \
       || die "falha ao baixar $asset (verifique a tag/arquitetura)"
   fi
   [[ -s "$destdir/$asset" ]] || die "asset baixado esta vazio: $asset"
@@ -241,14 +255,19 @@ resolve_vault_dir() {
     if (( ASSUME_YES )) || (( DRY_RUN )); then
       die "crie o cofre antes: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
     fi
-    local resp
+    if [[ ! -e /dev/tty && ! -t 0 ]]; then
+      die "sem terminal interativo e sem cofre em $VAULT_DIR/$VAULT_FILE. Crie-o antes: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
+    fi
+    local resp=""
     printf 'Deseja criar o cofre agora executando "%s --add"? [s/N] ' "$BIN_NAME" >&2
-    IFS= read -r resp || true
+    read_interactive resp
     if [[ "$resp" =~ ^[sSyY]$ ]]; then
       ( cd "$VAULT_DIR" && "$BIN_DIR/$BIN_NAME" --add )
       [[ -f "$VAULT_DIR/$VAULT_FILE" ]] || die "cofre nao foi criado"
+    elif [[ -n "$resp" ]]; then
+      die "cancelado pelo usuario. Crie o cofre com: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
     else
-      die "cancelado. Crie o cofre com: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
+      die "cofre nao encontrado em $VAULT_DIR/$VAULT_FILE. Crie-o antes: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
     fi
   fi
 }
