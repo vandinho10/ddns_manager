@@ -1,0 +1,30 @@
+# Binário compilado
+/ddns_manager
+/ddns_manager.exe
+ddns_manager-linux-x86_64
+ddns_manager-linux-aarch64
+ddns_manager-linux-arm32
+ddns_manager-windows-*.exe
+ddns_manager-win-*.exe
+
+# Cofre de credenciais (NUNCA versionar)
+ddns_vault.enc
+
+# Artefatos de execução
+*.log
+/data/
+
+# Binários de teste
+tests/test_runner
+tests/test_runner_san
+
+# Arquivos de objeto
+*.o
+
+# Arquivos de sistema operacional
+.DS_Store
+Thumbs.db
+
+# Pastas de IDEs/Editores
+.vscode/
+.idea/

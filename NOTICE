@@ -1,0 +1,16 @@
+ddns_manager — NOTICE
+
+Copyright (c) 2026 Vanderson Oliveira.
+
+Este projeto é licenciado sob a MIT License (ver LICENSE).
+
+Third-party notices
+===================
+
+Este projeto vincula dinamicamente à libcurl e às bibliotecas OpenSSL
+fornecidas pelo sistema operacional. Avisos de terceiros a preservar:
+- curl: https://curl.se/docs/copyright.html
+- OpenSSL: https://www.openssl.org/source/license.html
+
+O parser/serializador JSON é código próprio (json_min.cpp / json_min.hpp),
+sem dependência externa.
