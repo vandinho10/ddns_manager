@@ -8,8 +8,6 @@
 - [ ] Avaliar integração como job agendado no `docker-compose.yaml` do
       monorepo (execução periódica do atualizador de IP).
 - [ ] Avaliar suporte a notificação via Telegram em caso de falha de update.
-- [ ] Avaliar troca de PBKDF2 por Argon2id quando houver dependência
-      tolerável (o cofre atual é lido pela cifra legada).
 
 ## Concluído
 
