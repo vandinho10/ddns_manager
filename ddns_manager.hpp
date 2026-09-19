@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "json_min.hpp"
 
@@ -58,6 +59,22 @@ std::string obter_senha_mestra();
 
 // --- Transporte HTTP (http.cpp) ---
 
+// Um dominio e os IPs associados a ele (vazio = ausente, omitido no payload).
+struct DadosDominio
+{
+    std::string dominio;
+    std::string ipv4;
+    std::string ipv6;
+};
+
+// Resultado (por dominio) da resposta do Worker.
+struct ResultadoDominio
+{
+    std::string dominio;
+    bool sucesso = false;
+    std::string erro; // detalhe quando a atualizacao falha
+};
+
 // Requisicao GET simples com timeout. Retorna string vazia em caso de erro.
 std::string http_get(const std::string& url, long timeout_s);
 
@@ -68,9 +85,29 @@ bool http_post_json(const std::string& url, const std::string& corpo,
 // Obtem o IP publico atual via https://api.ipify.org (valida IPv4).
 bool obter_ip_publico(std::string& ip);
 
-// Notifica o Worker do Cloudflare para atualizar o registro de um dominio.
-bool notificar_worker(const std::string& api_url, const std::string& dominio,
-                      const std::string& auth_key, const std::string& novo_ip,
+// Obtem o IP publico IPv6 atual via https://api6.ipify.org (valida IPv6).
+bool obter_ipv6_publico(std::string& ip);
+
+// Monta o corpo JSON do payload do Worker:
+// {"auth_key":..., "domains":{<dominio>:{ipv4?, ipv6?}}} (IPs vazios omitidos).
+std::string montar_payload_worker(const std::string& auth_key,
+                                  const std::vector<DadosDominio>& dominios);
+
+// Interpreta a resposta JSON do Worker, preenchendo um ResultadoDominio por
+// dominio (mesma ordem de `dominios`). Retorna false se o corpo nao for um
+// JSON com a lista "results". Nao realiza transporte HTTP.
+bool interpretar_resposta_worker(const std::string& resposta,
+                                 const std::vector<DadosDominio>& dominios,
+                                 std::vector<ResultadoDominio>& resultados);
+
+// Notifica o Worker do Cloudflare com um lote de dominios que compartilham a
+// mesma auth_key. Envia {"auth_key":..., "domains":{<dominio>:{ipv4?, ipv6?}}}
+// e preenche `resultados` (um por dominio, na mesma ordem). Retorna false
+// apenas para falhas de transporte/parse; o estado individual de cada dominio
+// fica em `resultados[].sucesso`.
+bool notificar_worker(const std::string& api_url, const std::string& auth_key,
+                      const std::vector<DadosDominio>& dominios,
+                      std::vector<ResultadoDominio>& resultados,
                       std::string& erro);
 
 // --- Comandos CLI (main.cpp) ---
@@ -89,6 +126,9 @@ int cmd_atualizar(const std::string& caminho);
 
 // Verifica se o texto e um IPv4 valido (pontos separando 1-3 digitos).
 bool eh_ipv4(const std::string& texto);
+
+// Verifica se o texto e um IPv6 valido (apenas hex e ':', com ao menos um ':').
+bool eh_ipv6(const std::string& texto);
 
 // Remove espacos em branco e quebras de linha das extremidades.
 std::string trim(const std::string& texto);

@@ -108,6 +108,16 @@ public:
         arr_.push_back(v);
     }
 
+    // Acesso a elemento de array por indice.
+    const Value& item(size_t i) const
+    {
+        if (tipo_ != Tipo::Array)
+            throw Erro("item() em valor nao-array");
+        if (i >= arr_.size())
+            throw Erro("indice de array fora dos limites");
+        return arr_[i];
+    }
+
     // Iteracao sobre objeto (chave -> valor)
     typedef std::map<std::string, Value>::const_iterator iterator;
     iterator begin() const

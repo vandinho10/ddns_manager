@@ -4,6 +4,29 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-19
+
+### Added
+
+- Detecção de IPv6 público (`https://api6.ipify.org`) e envio simultâneo de
+  registros **A** (IPv4) e **AAAA** (IPv6).
+
+### Changed
+
+- Payload ao Worker alinhado ao novo receptor Cloudflare:
+  `{"auth_key":..., "domains":{<domínio>:{ipv4?, ipv6?}}}` em substituição a
+  `{domain, auth_key, new_ip}`.
+- Domínios com a mesma `auth_key` são agrupados em um único lote por
+  requisição (o Worker valida a mesma chave para todos os domínios do corpo).
+- A resposta do Worker passa a ser interpretada por domínio via `results[]`
+  (`success:false` + `error`, ou `updates[]` com `success`/`errors`), já que o
+  HTTP `200` ocorre mesmo com falha individual de registros.
+- Falha de comunicação/parse da resposta agora marca a execução como falha
+  (exit code não-zero).
+- Suíte de testes ampliada de 101 para 133 checks (payload, IPv6, arrays JSON
+  e interpretação de respostas de sucesso, domínio não autorizado e erro de
+  update).
+
 ## [1.0.0] - 2026-09-19
 
 ### Added

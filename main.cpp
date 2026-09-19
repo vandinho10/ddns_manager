@@ -3,6 +3,8 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <map>
+#include <vector>
 
 namespace ddns {
 
@@ -206,43 +208,78 @@ int cmd_atualizar(const std::string& caminho)
         return EXIT_FAILURE;
     }
 
-    std::cout << "[INFO] Obtendo IP publico atual...\n";
-    std::string ip;
-    if (!obter_ip_publico(ip))
+    std::cout << "[INFO] Obtendo IPs publicos (IPv4 e IPv6)...\n";
+    std::string ipv4;
+    std::string ipv6;
+    const bool tem_ipv4 = obter_ip_publico(ipv4);
+    const bool tem_ipv6 = obter_ipv6_publico(ipv6);
+    if (!tem_ipv4 && !tem_ipv6)
     {
-        std::cerr << "[ERRO] Nao foi possivel obter o IP publico.\n";
+        std::cerr << "[ERRO] Nao foi possivel obter IP publico (IPv4/IPv6).\n";
         return EXIT_FAILURE;
     }
-    std::cout << "[INFO] IP Publico detectado: " << ip << "\n";
+    if (tem_ipv4)
+        std::cout << "[INFO] IPv4 publico detectado: " << ipv4 << "\n";
+    if (tem_ipv6)
+        std::cout << "[INFO] IPv6 publico detectado: " << ipv6 << "\n";
 
-    int falhas = 0;
+    // Agrupa os dominios por auth_key: o Worker valida a mesma auth_key para
+    // todo o lote, entao dominios com chaves distintas exigem requisicoes
+    // separadas (mapa auth_key -> dominios).
+    std::map<std::string, std::vector<DadosDominio>> lotes;
     const json::Value& dominios = cofre.get("domains");
     for (json::Value::iterator it = dominios.begin(); it != dominios.end(); ++it)
     {
-        const std::string& dominio = it->first;
         const json::Value& valor = it->second;
         if (!valor.is_string())
         {
-            std::cerr << "[ERRO] Dominio '" << dominio
+            std::cerr << "[ERRO] Dominio '" << it->first
                       << "' sem auth_key valida no cofre. Ignorado.\n";
-            ++falhas;
             continue;
         }
+        DadosDominio d;
+        d.dominio = it->first;
+        d.ipv4 = tem_ipv4 ? ipv4 : "";
+        d.ipv6 = tem_ipv6 ? ipv6 : "";
+        lotes[valor.como_string()].push_back(d);
+    }
+    if (lotes.empty())
+    {
+        std::cerr << "[ERRO] Nenhum dominio valido cadastrado no cofre. Use --add.\n";
+        return EXIT_FAILURE;
+    }
 
-        std::cout << "[INFO] Atualizando dominio: " << dominio << "...\n";
+    bool falhas = false;
+    for (auto& par : lotes)
+    {
         std::string erro;
-        if (notificar_worker(api_url, dominio, valor.como_string(), ip, erro))
+        std::vector<ResultadoDominio> resultados;
+        if (!notificar_worker(api_url, par.first, par.second, resultados, erro))
         {
-            std::cout << "[SUCESSO] Dominio '" << dominio
-                      << "' atualizado para o IP " << ip << "\n";
+            std::cerr << "[ERRO] Falha de comunicacao com o Worker (lote de "
+                      << par.second.size() << " dominio(s)): " << erro << "\n";
+            falhas = true;
+            continue;
         }
-        else
+        for (const auto& r : resultados)
         {
-            std::cerr << "[ERRO] Dominio '" << dominio << "': " << erro << "\n";
-            ++falhas;
+            if (r.sucesso)
+            {
+                std::cout << "[SUCESSO] Dominio '" << r.dominio << "' atualizado";
+                if (tem_ipv4)
+                    std::cout << " (A: " << ipv4 << ")";
+                if (tem_ipv6)
+                    std::cout << " (AAAA: " << ipv6 << ")";
+                std::cout << "\n";
+            }
+            else
+            {
+                std::cerr << "[ERRO] Dominio '" << r.dominio << "': " << r.erro << "\n";
+                falhas = true;
+            }
         }
     }
-    return falhas == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return falhas ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
 } // namespace ddns
