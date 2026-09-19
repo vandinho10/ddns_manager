@@ -262,7 +262,13 @@ resolve_vault_dir() {
     printf 'Deseja criar o cofre agora executando "%s --add"? [s/N] ' "$BIN_NAME" >&2
     read_interactive resp
     if [[ "$resp" =~ ^[sSyY]$ ]]; then
-      ( cd "$VAULT_DIR" && "$BIN_DIR/$BIN_NAME" --add )
+      # O --add e interativo (lê a Senha Mestra no stdin); sob curl|bash o
+      # stdin eh o pipe do script, entao redirecionamos para o terminal real.
+      if [[ -e /dev/tty ]]; then
+        ( cd "$VAULT_DIR" && "$BIN_DIR/$BIN_NAME" --add ) < /dev/tty
+      else
+        ( cd "$VAULT_DIR" && "$BIN_DIR/$BIN_NAME" --add )
+      fi
       [[ -f "$VAULT_DIR/$VAULT_FILE" ]] || die "cofre nao foi criado"
     elif [[ -n "$resp" ]]; then
       die "cancelado pelo usuario. Crie o cofre com: (cd '$VAULT_DIR' && '$BIN_DIR/$BIN_NAME' --add)"
