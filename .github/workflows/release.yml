@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux: containers debian:bookworm-slim por arquitetura
+          - arch: x86_64
+            mode: linux
+            platform: linux/amd64
+          - arch: aarch64
+            mode: linux
+            platform: linux/arm64
+          - arch: arm32
+            mode: linux
+            platform: linux/arm/v7
+          # Windows: cross-compile mingw-w64, binario 100% estatico (WinHTTP+CNG)
+          - arch: windows-amd64
+            mode: mingw
+            cxx: x86_64-w64-mingw32-g++
+          - arch: windows-x86
+            mode: mingw
+            cxx: i686-w64-mingw32-g++
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        if: matrix.mode == 'linux'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Build Linux (${{ matrix.arch }})
+        if: matrix.mode == 'linux'
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$(pwd):/src" -w /src \
+            debian:bookworm-slim \
+            bash -c '
+              apt-get update -qq &&
+              apt-get install -y -qq g++ make libssl-dev libcurl4-openssl-dev > /dev/null 2>&1 &&
+              make all &&
+              cp ddns_manager /src/ddns_manager-linux-${{ matrix.arch }}
+            '
+          ls -lh ddns_manager-linux-${{ matrix.arch }}
+
+      - name: Build Windows (${{ matrix.arch }})
+        if: matrix.mode == 'mingw'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++-mingw-w64 make > /dev/null 2>&1
+          make TARGET_OS=Windows_NT CXX=${{ matrix.cxx }}-posix all
+          cp ddns_manager.exe ddns_manager-${{ matrix.arch }}.exe
+          ls -lh ddns_manager-${{ matrix.arch }}.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ddns_manager-${{ matrix.arch }}
+          path: |
+            ddns_manager-linux-*
+            ddns_manager-windows-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          generate_release_notes: true
