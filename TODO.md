@@ -2,12 +2,13 @@
 
 ## A definir
 
-- [ ] Avaliar integração como job agendado no `docker-compose.yaml` do
-      monorepo (execução periódica do atualizador de IP).
 - [ ] Avaliar suporte a notificação via Telegram em caso de falha de update.
 
 ## Concluído
 
+- [x] Instalador `scripts/install.sh`: baixa binário por arquitetura, grava a
+      Senha Mestra sem eco e agenda a execução periódica via systemd user
+      timer (fallback cron) — v1.2.0.
 - [x] Alinhamento ao receptor Cloudflare: payload
       `{"auth_key","domains":{...}}`, detecção IPv4/IPv6 e lote por `auth_key`
       (v1.1.0).
