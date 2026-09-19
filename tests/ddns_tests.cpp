@@ -72,7 +72,7 @@ TEST("json_construcao_manual_dump")
 {
     Value v = Value::objeto();
     v.set("domain", Value::de_string("alfa.example.com"));
-    v.set("new_ip", Value::de_string("203.0.113.9"));
+    v.set("ipv4", Value::de_string("203.0.113.9"));
     Value kids = Value::objeto();
     kids.set("one", Value::de_string("first"));
     v.set("nested", kids);
@@ -352,6 +352,224 @@ TEST("trim_remove_espacos")
     {
         CHECK(ddns::trim(c.entrada) == c.esperado);
     }
+}
+
+// ===========================================================================
+// Payload do Worker (formato do receptor Cloudflare)
+// ===========================================================================
+
+TEST("worker_payload_ipv4_e_ipv6")
+{
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio d;
+    d.dominio = "alfa.example.com";
+    d.ipv4 = "203.0.113.9";
+    d.ipv6 = "2001:db8::1";
+    dominios.push_back(d);
+
+    ddns::json::Value v = ddns::json::Value::parse(ddns::montar_payload_worker("segredo", dominios));
+    CHECK(v.as_string("auth_key", "") == "segredo");
+    CHECK(v.get("domains").tem("alfa.example.com"));
+    const ddns::json::Value& entry = v.get("domains").get("alfa.example.com");
+    CHECK(entry.as_string("ipv4", "") == "203.0.113.9");
+    CHECK(entry.as_string("ipv6", "") == "2001:db8::1");
+}
+
+TEST("worker_payload_sem_ipv6")
+{
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio d;
+    d.dominio = "alfa.example.com";
+    d.ipv4 = "203.0.113.9";
+    dominios.push_back(d);
+
+    ddns::json::Value v = ddns::json::Value::parse(ddns::montar_payload_worker("k", dominios));
+    const ddns::json::Value& entry = v.get("domains").get("alfa.example.com");
+    CHECK(entry.as_string("ipv4", "") == "203.0.113.9");
+    CHECK(entry.as_string("ipv6", "ausente") == "ausente");
+}
+
+TEST("worker_payload_ipv6_only")
+{
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio d;
+    d.dominio = "beta.example.com";
+    d.ipv6 = "2001:db8::5678";
+    dominios.push_back(d);
+
+    ddns::json::Value v = ddns::json::Value::parse(ddns::montar_payload_worker("k", dominios));
+    const ddns::json::Value& entry = v.get("domains").get("beta.example.com");
+    CHECK(entry.as_string("ipv4", "ausente") == "ausente");
+    CHECK(entry.as_string("ipv6", "") == "2001:db8::5678");
+}
+
+TEST("work_payload_multi_dominio")
+{
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio a;
+    a.dominio = "zeta.example.com";
+    a.ipv4 = "10.0.0.1";
+    ddns::DadosDominio b;
+    b.dominio = "alfa.example.com";
+    b.ipv4 = "10.0.0.1";
+    dominios.push_back(a);
+    dominios.push_back(b);
+
+    ddns::json::Value v = ddns::json::Value::parse(ddns::montar_payload_worker("k", dominios));
+    CHECK(v.get("domains").size() == 2);
+    CHECK(v.get("domains").tem("zeta.example.com"));
+    CHECK(v.get("domains").tem("alfa.example.com"));
+}
+
+TEST("ipv6_valido")
+{
+    const std::vector<std::string> validos = {
+        "::1",
+        "2001:db8::1",
+        "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+        "::",
+        "fe80::1",
+    };
+    for (const auto& ip : validos)
+    {
+        if (!ddns::eh_ipv6(ip))
+        {
+            CHECK(false);
+            std::cerr << "    rejeitado: " << ip << "\n";
+        }
+    }
+    CHECK(true);
+}
+
+TEST("ipv6_invalido")
+{
+    const std::vector<std::string> invalidos = {
+        "",
+        " ",
+        "127.0.0.1",
+        "gggg::",
+        "2001:::db8",
+        "abc",
+        "1.2.3.4",
+    };
+    for (const auto& ip : invalidos)
+    {
+        if (ddns::eh_ipv6(ip))
+        {
+            CHECK(false);
+            std::cerr << "    aceito: '" << ip << "'\n";
+        }
+    }
+    CHECK(true);
+}
+
+TEST("json_array_item_acesso")
+{
+    const std::string texto = R"({"results":[{"domain":"a.com","success":true},{"domain":"b.com","success":false}]})";
+    ddns::json::Value v = ddns::json::Value::parse(texto);
+    CHECK(v.get("results").is_array());
+    CHECK(v.get("results").size() == 2);
+    CHECK(v.get("results").item(0).as_string("domain", "") == "a.com");
+    CHECK(v.get("results").item(0).get("success").raw() == "true");
+    CHECK(v.get("results").item(1).get("success").raw() == "false");
+
+    bool lancou = false;
+    try
+    {
+        v.get("results").item(5);
+    }
+    catch (const ddns::json::Erro&)
+    {
+        lancou = true;
+    }
+    CHECK(lancou);
+}
+
+// ===========================================================================
+// Interpretacao da resposta do Worker (receptor Cloudflare)
+// ===========================================================================
+
+TEST("worker_resposta_sucesso_todos_dominios")
+{
+    const std::string corpo = R"({"success":true,"results":[
+        {"domain":"alfa.example.com","updates":[
+            {"type":"A","content":"203.0.113.9","success":true},
+            {"type":"AAAA","content":"2001:db8::1","success":true}]},
+        {"domain":"beta.example.com.br","updates":[
+            {"type":"A","content":"203.0.113.9","success":true}]}
+    ]})";
+
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio a;
+    a.dominio = "alfa.example.com";
+    a.ipv4 = "203.0.113.9";
+    a.ipv6 = "2001:db8::1";
+    ddns::DadosDominio b;
+    b.dominio = "beta.example.com.br";
+    b.ipv4 = "203.0.113.9";
+    dominios.push_back(a);
+    dominios.push_back(b);
+
+    std::vector<ddns::ResultadoDominio> resultados;
+    CHECK(ddns::interpretar_resposta_worker(corpo, dominios, resultados));
+    CHECK(resultados.size() == 2);
+    CHECK(resultados[0].sucesso);
+    CHECK(resultados[1].sucesso);
+}
+
+TEST("worker_resposta_dominio_nao_listado")
+{
+    const std::string corpo = R"({"success":true,"results":[
+        {"domain":"naolista.example.com","success":false,
+         "error":"Domínio não listado, não autorizado ou chave incorreta"}
+    ]})";
+
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio a;
+    a.dominio = "naolista.example.com";
+    a.ipv4 = "203.0.113.9";
+    dominios.push_back(a);
+
+    std::vector<ddns::ResultadoDominio> resultados;
+    CHECK(ddns::interpretar_resposta_worker(corpo, dominios, resultados));
+    CHECK(resultados.size() == 1);
+    CHECK(!resultados[0].sucesso);
+    CHECK(!resultados[0].erro.empty());
+}
+
+TEST("worker_resposta_update_falhou_erro_cf")
+{
+    const std::string corpo = R"({"success":true,"results":[
+        {"domain":"alfa.example.com","updates":[
+            {"type":"A","content":"203.0.113.9","success":false,
+             "errors":[{"code":9003,"message":"Record could not be found"}]}]}
+    ]})";
+
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio a;
+    a.dominio = "alfa.example.com";
+    a.ipv4 = "203.0.113.9";
+    dominios.push_back(a);
+
+    std::vector<ddns::ResultadoDominio> resultados;
+    CHECK(ddns::interpretar_resposta_worker(corpo, dominios, resultados));
+    CHECK(resultados.size() == 1);
+    CHECK(resultados[0].sucesso == false);
+    CHECK(resultados[0].erro.find("Record could not be found") != std::string::npos);
+}
+
+TEST("worker_resposta_sem_results")
+{
+    const std::string corpo = R"({"success":true})";
+
+    std::vector<ddns::DadosDominio> dominios;
+    ddns::DadosDominio a;
+    a.dominio = "alfa.example.com";
+    a.ipv4 = "203.0.113.9";
+    dominios.push_back(a);
+
+    std::vector<ddns::ResultadoDominio> resultados;
+    CHECK(!ddns::interpretar_resposta_worker(corpo, dominios, resultados));
 }
 
 } // namespace
