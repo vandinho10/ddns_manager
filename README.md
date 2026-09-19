@@ -37,12 +37,70 @@ criptografado é idêntico entre todas as plataformas.
 - **Saída para automação** — código de saída `0` somente quando todos os
   domínios são atualizados com sucesso.
 
+## Instalação automática (Linux)
+
+O script `scripts/install.sh` baixa o binário do release adequado à
+arquitetura, instala em `~/.local/bin`, lê a Senha Mestra **sem eco** e
+configura o agendamento periódico via **systemd user timer** (com fallback para
+**cron**). O cofre nunca é criado nem removido pelo script.
+
+Instalação em uma única linha (baixa e executa a última versão do instalador):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vandinho10/ddns_manager/main/scripts/install.sh | bash -s -- --vault-dir "$PWD" --interval 6
+```
+
+> Segurança: executar scripts via `curl | bash` assume confiança no repositório.
+> Recomenda-se baixar (`curl -fsSL -o install.sh URL`) e revisar o conteúdo
+> antes da primeira execução — o próprio instalador também aceita `--dry-run`.
+
+```bash
+# Última versão, cofre no diretório atual, execução a cada 6 min (padrão)
+./scripts/install.sh
+
+# Cofre em outro diretório e intervalo customizado
+./scripts/install.sh --vault-dir ~/Documentos/docker_projects_dev --interval 6
+
+# Automação: senha via stdin (sem eco) ou variável de ambiente
+echo "$DDNS_MASTER_PASSWORD" | ./scripts/install.sh --password-stdin
+DDNS_MASTER_PASSWORD=... ./scripts/install.sh
+
+# Simular sem alterar o sistema / remover
+./scripts/install.sh --dry-run
+./scripts/install.sh --uninstall            # mantém senha e binário
+./scripts/install.sh --uninstall --purge    # remove senha e binário
+```
+
+Opções relevantes: `--version`, `--arch`, `--bin-dir`, `--vault-dir`,
+`--interval`, `--no-timer`, `--no-linger`, `--no-test-run`, `--yes`, `--purge`,
+`--dry-run`, `--help`.
+
+Arquivos gerados:
+
+| Caminho | Permissão | Descrição |
+|---|---|---|
+| `~/.local/bin/ddns_manager` | `0755` | binário do release |
+| `~/.config/ddns_manager/password` | `0600` | Senha Mestra (criada via entrada sem eco) |
+| `~/.config/ddns_manager/ddns-manager-run.sh` | `0700` | wrapper que injeta a senha no ambiente |
+| `~/.config/systemd/user/ddns-manager.{service,timer}` | `0644` | agendamento periódico |
+
+Para operar o serviço:
+
+```bash
+systemctl --user list-timers ddns-manager.timer
+systemctl --user start ddns-manager.service     # execução imediata (teste)
+journalctl --user -u ddns-manager.service -f    # logs
+```
+
+Pré-requisito: um cofre já existente (`ddns_manager --add`) no diretório
+apontado por `--vault-dir`. Se ausente, o instalador oferece criá-lo.
+
 ## Compilação
 
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.1.0)
+make              # build otimizado de release (v1.2.0)
 make check        # análise estática -Werror (zero warnings)
 make test         # suíte table-driven (133 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer

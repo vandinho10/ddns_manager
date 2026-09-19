@@ -4,6 +4,15 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-19
+
+### Added
+
+- Script `scripts/install.sh`: instalação automatizada do binário por
+  arquitetura, leitura da Senha Mestra sem eco, wrapper seguro e agendamento
+  periódico via **systemd user timer** (fallback para **cron**), com suporte a
+  `--uninstall`/`--purge` e `--dry-run`.
+
 ## [1.1.0] - 2026-09-19
 
 ### Added
