@@ -10,6 +10,12 @@ ddns_manager-win-*.exe
 # Cofre de credenciais (NUNCA versionar)
 ddns_vault.enc
 
+# Estado de execucao (IPs e contadores das regras de acionamento)
+ddns_state.json
+
+# Artefatos temporarios de trabalho
+/_tmp/
+
 # Artefatos de execução
 *.log
 /data/

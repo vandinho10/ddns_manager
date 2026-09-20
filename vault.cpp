@@ -417,13 +417,8 @@ bool arquivo_existe(const std::string& caminho)
     return arquivo_existe_nativo(caminho.c_str());
 }
 
-std::string obter_senha_mestra()
+std::string ler_linha_sem_eco()
 {
-    // Preferencia para automacao (cron/systemd): variavel de ambiente.
-    const char* env = std::getenv("DDNS_MASTER_PASSWORD");
-    if (env != nullptr && *env != '\0')
-        return env;
-
 #ifdef _WIN32
     // Desabilita o eco de digitacao no console do Windows.
     HANDLE hIn = ::GetStdHandle(STD_INPUT_HANDLE);
@@ -445,8 +440,8 @@ std::string obter_senha_mestra()
     }
 #endif
 
-    std::string senha;
-    std::getline(std::cin, senha);
+    std::string linha;
+    std::getline(std::cin, linha);
 
 #ifdef _WIN32
     if (console_ok)
@@ -461,7 +456,16 @@ std::string obter_senha_mestra()
         std::cout << "\n";
     }
 #endif
-    return senha;
+    return linha;
+}
+
+std::string obter_senha_mestra()
+{
+    // Preferencia para automacao (cron/systemd): variavel de ambiente.
+    const char* env = std::getenv("DDNS_MASTER_PASSWORD");
+    if (env != nullptr && *env != '\0')
+        return env;
+    return ler_linha_sem_eco();
 }
 
 std::string trim(const std::string& texto)
@@ -471,6 +475,153 @@ std::string trim(const std::string& texto)
         return "";
     size_t fim = texto.find_last_not_of(" \t\r\n");
     return texto.substr(ini, fim - ini + 1);
+}
+
+// Converte para maiusculas de forma portavel (sem depender de <cctype>).
+std::string para_maiusculas(const std::string& s)
+{
+    std::string out = s;
+    for (char& c : out)
+        if (c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - ('a' - 'A'));
+    return out;
+}
+
+bool tipo_valido(const std::string& tipo)
+{
+    const std::string t = para_maiusculas(trim(tipo));
+    return t == TIPO_A || t == TIPO_AAAA;
+}
+
+bool parsear_tipos(const std::string& entrada, std::vector<std::string>& types)
+{
+    types.clear();
+    const std::string texto = para_maiusculas(trim(entrada));
+    if (texto.empty())
+        return false;
+
+    // Atalho "ambos" -> A+AAAA (retrocompat e conveniencia).
+    if (texto == "AMBOS")
+    {
+        types.push_back(TIPO_A);
+        types.push_back(TIPO_AAAA);
+        return true;
+    }
+
+    // Separa por virgula e/ou espaco; aceita "A,AAAA", "AAAA", "A" etc.
+    std::string token;
+    std::vector<std::string> coletados;
+    for (const char c : texto)
+    {
+        if (c == ',' || c == ' ')
+        {
+            if (!token.empty())
+            {
+                coletados.push_back(token);
+                token.clear();
+            }
+            continue;
+        }
+        token += c;
+    }
+    if (!token.empty())
+        coletados.push_back(token);
+
+    if (coletados.empty())
+        return false;
+
+    // Valida e deduplica mantendo a ordem canonica A,AAAA.
+    bool tem_a = false;
+    bool tem_aaaa = false;
+    for (const auto& t : coletados)
+    {
+        if (!tipo_valido(t))
+            return false;
+        if (t == TIPO_A)
+            tem_a = true;
+        else if (t == TIPO_AAAA)
+            tem_aaaa = true;
+    }
+    if (tem_a)
+        types.push_back(TIPO_A);
+    if (tem_aaaa)
+        types.push_back(TIPO_AAAA);
+    return !types.empty();
+}
+
+std::string tipos_para_texto(const std::vector<std::string>& types)
+{
+    std::string saida;
+    for (const auto& t : types)
+    {
+        if (!saida.empty())
+            saida += ",";
+        saida += t;
+    }
+    return saida;
+}
+
+bool ler_config_dominio(const json::Value& valor, ConfigDominio& cfg)
+{
+    cfg = ConfigDominio();
+
+    // Retrocompatibilidade: o formato antigo (string = auth_key pura) equivale
+    // aos tipos padrao A+AAAA e e aceito para nao quebrar cofres v1.2.0.
+    if (valor.is_string() || valor.is_outro())
+    {
+        cfg.auth_key = valor.como_string();
+        if (cfg.auth_key.empty())
+            return false;
+        cfg.types.push_back(TIPO_A);
+        cfg.types.push_back(TIPO_AAAA);
+        return true;
+    }
+
+    // Formato atual: o dominio DEVE ser um objeto {auth_key, types}.
+    if (!valor.is_objeto() || !valor.tem("auth_key"))
+        return false;
+    const json::Value& ak = valor.get("auth_key");
+    if (!(ak.is_string() || ak.is_outro()))
+        return false;
+    cfg.auth_key = ak.como_string();
+    if (cfg.auth_key.empty())
+        return false;
+    if (!valor.tem("types") || !valor.get("types").is_array())
+        return false;
+    const json::Value& arr = valor.get("types");
+    if (arr.size() == 0)
+        return false;
+    bool tem_a = false;
+    bool tem_aaaa = false;
+    for (size_t ii = 0; ii < arr.size(); ++ii)
+    {
+        const json::Value& t = arr.item(ii);
+        if (!(t.is_string() || t.is_outro()))
+            return false;
+        const std::string tipo = para_maiusculas(trim(t.como_string()));
+        if (!tipo_valido(tipo))
+            return false;
+        if (tipo == TIPO_A)
+            tem_a = true;
+        else if (tipo == TIPO_AAAA)
+            tem_aaaa = true;
+    }
+    if (tem_a)
+        cfg.types.push_back(TIPO_A);
+    if (tem_aaaa)
+        cfg.types.push_back(TIPO_AAAA);
+    return !cfg.types.empty();
+}
+
+json::Value montar_valor_dominio(const ConfigDominio& cfg)
+{
+    json::Value v = json::Value::objeto();
+    v.set("auth_key", json::Value::de_string(cfg.auth_key));
+    json::Value arr = json::Value::array();
+    for (const auto& t : cfg.types)
+        arr.empurra(json::Value::de_string(t));
+    v.set("types", arr);
+    return v;
 }
 
 } // namespace ddns

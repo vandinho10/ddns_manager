@@ -4,6 +4,8 @@
 
 #include "ddns_manager.hpp"
 
+#include <algorithm>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <winhttp.h>
@@ -448,10 +450,13 @@ std::string montar_payload_worker(const std::string& auth_key,
     json::Value dominio_payload = json::Value::objeto();
     for (const auto& d : dominios)
     {
+        // Estrito: envia somente os tipos declarados em d.types.
+        const bool tem_a = std::find(d.types.begin(), d.types.end(), TIPO_A) != d.types.end();
+        const bool tem_aaaa = std::find(d.types.begin(), d.types.end(), TIPO_AAAA) != d.types.end();
         json::Value ips = json::Value::objeto();
-        if (!d.ipv4.empty())
+        if (tem_a && !d.ipv4.empty())
             ips.set("ipv4", json::Value::de_string(d.ipv4));
-        if (!d.ipv6.empty())
+        if (tem_aaaa && !d.ipv6.empty())
             ips.set("ipv6", json::Value::de_string(d.ipv6));
         dominio_payload.set(d.dominio, ips);
     }

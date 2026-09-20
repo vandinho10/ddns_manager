@@ -4,7 +4,7 @@ WARN     := -Wall -Wextra -Wpedantic
 OPTFLAGS := -O2
 DBGFLAGS := -O0 -g
 
-VERSION  := 1.2.0
+VERSION  := 1.3.0-rc.1
 TARGET   := ddns_manager
 TESTBIN  := tests/test_runner
 TESTBIN_SAN := tests/test_runner_san
@@ -31,23 +31,23 @@ CXXFLAGS := $(STD) $(WARN) -I. $(INC_DIRS)
 
 all: $(TARGET)
 
-$(TARGET): main.cpp vault.cpp http.cpp json_min.cpp ddns_manager.hpp json_min.hpp
-	$(CXX) $(CXXFLAGS) $(OPTFLAGS) -DDDNS_VERSION=\"$(VERSION)\" -o $@ main.cpp vault.cpp http.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
+$(TARGET): main.cpp vault.cpp http.cpp estado.cpp json_min.cpp ddns_manager.hpp json_min.hpp
+	$(CXX) $(CXXFLAGS) $(OPTFLAGS) -DDDNS_VERSION=\"$(VERSION)\" -o $@ main.cpp vault.cpp http.cpp estado.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
 
 # Verificacao estatica: warnings tratados como erro
 check:
-	$(CXX) $(CXXFLAGS) -Werror -fsyntax-only -DDDNS_VERSION=\"$(VERSION)\" main.cpp vault.cpp http.cpp json_min.cpp
+	$(CXX) $(CXXFLAGS) -Werror -fsyntax-only -DDDNS_VERSION=\"$(VERSION)\" main.cpp vault.cpp http.cpp estado.cpp json_min.cpp
 	@echo "verificacao ok (zero warnings)"
 
-$(TESTBIN): tests/ddns_tests.cpp vault.cpp http.cpp json_min.cpp ddns_manager.hpp json_min.hpp tests/test_framework.hpp
-	$(CXX) $(CXXFLAGS) $(DBGFLAGS) -DDDNS_VERSION=\"$(VERSION)\" -o $@ tests/ddns_tests.cpp vault.cpp http.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
+$(TESTBIN): tests/ddns_tests.cpp vault.cpp http.cpp estado.cpp json_min.cpp ddns_manager.hpp json_min.hpp tests/test_framework.hpp
+	$(CXX) $(CXXFLAGS) $(DBGFLAGS) -DDDNS_VERSION=\"$(VERSION)\" -o $@ tests/ddns_tests.cpp vault.cpp http.cpp estado.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
 
 test: $(TESTBIN)
 	./$(TESTBIN)
 
 # Build com sanitizers (AddressSanitizer + UndefinedBehaviorSanitizer)
-$(TESTBIN_SAN): tests/ddns_tests.cpp vault.cpp http.cpp json_min.cpp ddns_manager.hpp json_min.hpp tests/test_framework.hpp
-	$(CXX) $(CXXFLAGS) $(DBGFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -DDDNS_VERSION=\"$(VERSION)\" -o $@ tests/ddns_tests.cpp vault.cpp http.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
+$(TESTBIN_SAN): tests/ddns_tests.cpp vault.cpp http.cpp estado.cpp json_min.cpp ddns_manager.hpp json_min.hpp tests/test_framework.hpp
+	$(CXX) $(CXXFLAGS) $(DBGFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -DDDNS_VERSION=\"$(VERSION)\" -o $@ tests/ddns_tests.cpp vault.cpp http.cpp estado.cpp json_min.cpp $(LIB_DIRS) $(LIBS)
 
 sanitize: $(TESTBIN_SAN)
 	./$(TESTBIN_SAN)

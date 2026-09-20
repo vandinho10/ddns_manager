@@ -31,6 +31,11 @@ criptografado é idêntico entre todas as plataformas.
   automação via cron/systemd.
 - **Compatibilidade multi-distro** — OpenSSL 1.1.x e 3.x, libcurl presente
   nos repositórios oficiais; JSON embutido dispensa download de dependências.
+- **Acionamento inteligente do Worker** — regras 4.1/4.2/4.2.1/4.3: evita
+  chamadas desnecessárias quando o IP não mudou (4.1), aciona imediatamente em
+  mudança/erro (4.2), reaproveita as 4 execuções seguintes para re-verificação
+  pós-evento (4.2.1) e força sincronização preventiva a cada 5 execuções
+  silenciosas (4.3). O estado é persistido em `ddns_state.json` (`0600`).
 - **Suporte nativo ao Windows** — transporte WinHTTP e criptografia CNG
   (bcrypt.dll): binário 100% estático, sem dependência de terceiros; o mesmo
   cofre `ddns_vault.enc` funciona nas duas plataformas.
@@ -100,9 +105,9 @@ apontado por `--vault-dir`. Se ausente, o instalador oferece criá-lo.
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.2.0)
+make              # build otimizado de release (v1.3.0-rc.1)
 make check        # análise estática -Werror (zero warnings)
-make test         # suíte table-driven (133 checks)
+make test         # suíte table-driven (196 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer
 make install      # instala em /usr/local/bin/ddns_manager (requer sudo)
 ```
@@ -111,7 +116,7 @@ Compilação manual:
 
 ```bash
 g++ -std=c++17 -O2 -o ddns_manager \
-  main.cpp vault.cpp http.cpp json_min.cpp -lssl -lcrypto -lcurl
+  main.cpp vault.cpp http.cpp estado.cpp json_min.cpp -lssl -lcrypto -lcurl
 ```
 
 Verificação de compatibilidade multi-distro:
@@ -165,7 +170,7 @@ $ ./ddns_manager --add
 Digite a Senha Mestra do Cofre:            ██████████
 URL Base do Worker: https://seu-worker.workers.dev/
 Nome completo do Dominio/Subdominio (ex: alfa.domain1.com.br): alfa.example.com
-Chave de Autenticacao (auth_key) para este dominio: chave-secreta
+Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ██████████
 
 [SUCESSO] Dominio 'alfa.example.com' gravado de forma criptografada (ddns_vault.enc).
 ```
@@ -182,6 +187,25 @@ DDNS_MASTER_PASSWORD='sua-senha-mestra' /usr/local/bin/ddns_manager
 
 O exit code é `0` apenas quando o IP foi obtido e **todos** os domínios foram
 atualizados com sucesso — ideal para detecção de falha em agendadores.
+
+### Regras de acionamento do Worker
+
+Entre execuções periódicas (systemd timer/cron), o `ddns_manager` decide **se**
+e **quando** o Worker deve ser chamado, evitando atualizações redundantes:
+
+- **4.1** — sem alteração de IP e sem erro: Worker **não** é acionado;
+- **4.2** — houve alteração de IP ou erro: Worker é acionado (e abre-se a
+  janela pós-evento);
+- **4.2.1** — as **4 execuções seguintes** após uma alteração/erro acionam o
+  Worker (re-verificação);
+- **4.3** — após **5 execuções consecutivas** sem alteração e sem erro, o
+  Worker é acionado por periodicidade (sincronização preventiva).
+
+O estado é persistido em `ddns_state.json` (permissão `0600`, gitignored),
+criado no mesmo diretório do cofre, e contém os últimos IPs e o contador da
+janela pós-evento. Falhas de obtenção de IP ou de comunicação com o Worker
+registram erro no estado, abrindo a janela pós-evento para nova tentativa nas
+execuções seguintes.
 
 ## Segurança
 
