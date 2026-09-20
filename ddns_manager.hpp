@@ -19,7 +19,16 @@
 namespace ddns {
 
 constexpr const char* ARQUIVO_VAULT = "ddns_vault.enc";
+constexpr const char* ARQUIVO_ESTADO = "ddns_state.json";
 constexpr long TIMEOUT_HTTP = 10; // segundos por requisicao
+
+// Regras de acionamento do Worker (estado persistido entre execucoes):
+// 4.1  Sem alteracao de IP e sem erro -> NAO acionar worker.
+// 4.2  Alteracao de IP ou erro -> acionar worker.
+// 4.2.1 As 4 proximas execucoes apos uma alteracao/erro -> acionar worker.
+// 4.3  5 execucoes sem alteracao e sem erro -> acionar worker (sync periodico).
+constexpr int JANELA_POS_EVENTO = 4;      // 4.2.1: janela de re-verificacao
+constexpr int QUIET_TRIGGER_THRESHOLD = 5; // 4.3: execucoes quietas p/ periodicidade
 
 // Numero de iteracoes PBKDF2 (derivacao da chave mestre).
 constexpr unsigned int PBKDF2_ITERACOES = 120000;
@@ -53,9 +62,79 @@ bool salvar_cofre(const json::Value& cofre, const std::string& senha,
 // Verifica se o arquivo existe no filesystem.
 bool arquivo_existe(const std::string& caminho);
 
+// Le uma linha do terminal com echo desabilitado (termios POSIX / CNG Win),
+// ou do stdin quando nao-interativo. Nunca exibe o valor.
+std::string ler_linha_sem_eco();
+
 // Le a Senha Mestra: variavel de ambiente DDNS_MASTER_PASSWORD (automacao) ou
-// terminal com echo desabilitado (interativo). Nunca exibe o valor.
+// ler_linha_sem_eco() (interativo). Nunca exibe o valor.
 std::string obter_senha_mestra();
+
+// --- Tipos de registro DNS por dominio (cofre) ---
+
+// Tipos de registro DNS suportados por dominio: "A" (IPv4) e "AAAA" (IPv6).
+// Um dominio pode atualizar apenas um deles ou ambos (retrocompativel).
+constexpr const char* TIPO_A = "A";
+constexpr const char* TIPO_AAAA = "AAAA";
+
+// Configuracao de um dominio no cofre: auth_key + tipos de registro a
+// atualizar. O formato antigo (string = auth_key pura) equivale aos
+// tipos padrao A+AAAA (retrocompatibilidade).
+struct ConfigDominio
+{
+    std::string auth_key;
+    std::vector<std::string> types; // ex.: {"A","AAAA"} ou {"AAAA"}
+};
+
+// Verifica se um tipo isolado e valido ("A" ou "AAAA", aceita minusculas).
+bool tipo_valido(const std::string& tipo);
+
+// Normaliza a entrada de tipos ("A", "AAAA", "A,AAAA", "ambos"; aceita
+// minusculas e espacos). Deduplica e mantem a ordem canonica A,AAAA.
+// Retorna false para entrada vazia ou com tipos desconhecidos.
+bool parsear_tipos(const std::string& entrada, std::vector<std::string>& types);
+
+// Serializa os tipos para exibicao ("A", "AAAA" ou "A,AAAA").
+std::string tipos_para_texto(const std::vector<std::string>& types);
+
+// Le a configuracao de um dominio do cofre. Retrocompativel: uma string e
+// interpretada como auth_key com tipos padrao A+AAAA. Retorna false para
+// valores invalidos/desconhecidos.
+bool ler_config_dominio(const json::Value& valor, ConfigDominio& cfg);
+
+// Monta o valor JSON de um dominio no cofre: {auth_key, types:[...]}.
+json::Value montar_valor_dominio(const ConfigDominio& cfg);
+
+// --- Estado de execução e acionamento do Worker (estado.cpp) ---
+
+// Estado persistido entre execuções (ddns_state.json), utilizado pelas regras
+// de acionamento do Worker (4.1/4.2/4.2.1/4.3).
+struct EstadoExecucao
+{
+    std::string ipv4;               // último IPv4 conhecido (vazio = nunca)
+    std::string ipv6;               // último IPv6 conhecido (vazio = nunca)
+    bool janela_pos_evento = false; // dentro das 4 execuções pós-evento (4.2.1)
+    int execpos = 0;                // execuções restantes da janela pós-evento
+    int quiet = 0;                  // execuções quietas consecutivas (4.1/4.3)
+};
+
+// Carrega o estado do arquivo JSON. Ausência/corrupção -> estado padrão.
+void carregar_estado(const std::string& caminho, EstadoExecucao& estado);
+
+// Persiste o estado em JSON (permissão 0600 no POSIX).
+bool salvar_estado(const std::string& caminho, const EstadoExecucao& estado);
+
+// Detecta alteração de IP entre o estado persistido e os IPs atuais.
+bool ip_publico_mudou(const EstadoExecucao& estado, const std::string& ipv4,
+                      const std::string& ipv6, bool tem_ipv4, bool tem_ipv6);
+
+// Decide se o Worker deve ser acionado NESTA execução e atualiza o estado:
+// 4.1  mudou=false && erro=false fora da janela e quiet<5 -> false
+// 4.2  mudou=true  || erro=true   -> true (abre a janela pós-evento, 4 exec)
+// 4.2.1 dentro da janela pós-evento -> true (re-verificação)
+// 4.3  quiet >= 5 -> true (sync periódico, reinicia o contador)
+bool decidir_acionar(const EstadoExecucao& estado_ant, bool mudou, bool erro,
+                     EstadoExecucao& estado_novo);
 
 // --- Transporte HTTP (http.cpp) ---
 
@@ -65,6 +144,11 @@ struct DadosDominio
     std::string dominio;
     std::string ipv4;
     std::string ipv6;
+
+    // Tipos de registro DNS deste dominio (ex.: {"A"} ou {"AAAA"} ou ambos).
+    // Vazio = retrocompativel (A+AAAA). Usado pelo montar_payload_worker para
+    // incluir apenas os campos (ipv4/ipv6) correspondentes aos tipos ativos.
+    std::vector<std::string> types;
 };
 
 // Resultado (por dominio) da resposta do Worker.
@@ -113,7 +197,8 @@ bool notificar_worker(const std::string& api_url, const std::string& auth_key,
 // --- Comandos CLI (main.cpp) ---
 
 // --add / --update: insere ou atualiza um dominio no cofre (interativo).
-int cmd_adicionar(const std::string& caminho);
+// tipos_flag vazio = pergunta os tipos no terminal (ou usa A+AAAA).
+int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag);
 
 // --list: lista API URL e dominios cadastrados.
 int cmd_listar(const std::string& caminho);

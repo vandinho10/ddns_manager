@@ -4,6 +4,45 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+### Added
+
+- **Regras de acionamento do Worker** (item 4 da análise): o estado de
+  execução é persistido em `ddns_state.json` (permissão `0600`, gitignored) e
+  define quando o Worker é chamado entre execuções periódicas:
+  - **Regra 4.1** — execução sem alteração de IP e sem erro: Worker **não**
+    é acionado.
+  - **Regra 4.2** — alteração de IP ou erro: Worker é acionado e abre-se a
+    janela pós-evento.
+  - **Regra 4.2.1** — as 4 execuções seguintes após uma alteração/erro são
+    usadas para re-verificação, acionando o Worker.
+  - **Regra 4.3** — após 5 execuções consecutivas sem alteração e sem erro,
+    o Worker é acionado por periodicidade (sincronização preventiva).
+- Funções de estado em `estado.cpp`: `carregar_estado`, `salvar_estado`,
+  `ip_publico_mudou` e `decidir_acionar`, com recuperação de arquivo ausente
+  ou corrompido e saneamento de contadores fora dos limites.
+- **Seleção de tipos por domínio**: `--add`/`--update` agora pergunta (ou
+  recebe via `--types A,AAAA`) quais registros atualizar por domínio — `A`
+  (IPv4), `AAAA` (IPv6) ou ambos. O cofre passa a armazenar
+  `{auth_key, types}` e o payload ao Worker envia somente os IPs dos tipos
+  declarados.
+- Suíte de testes ampliada para 196 checks (semântica do estado: comparação de
+  IPs, regras 4.1/4.2/4.2.1/4.3, sequências completas, persistência JSON e
+  retrocompatibilidade do cofre legado).
+
+### Changed
+
+- **Retrocompatibilidade do cofre**: o formato antigo (string = `auth_key`
+  pura, v1.2.0) continua sendo aceito por `ler_config_dominio` e é
+  automaticamente migrado para `{auth_key, types:[A,AAAA]}` quando `--add`
+  ou o modo de atualização reescrevem o cofre — sem quebra de dados existentes
+  e sem exigir intervenção manual.
+
+### Security
+
+- `auth_key` agora é lida com **digitação oculta** (eco desabilitado), de forma
+  consistente com a Senha Mestra. Continua armazenada apenas no cofre
+  criptografado, oculta em `--list` e trafegando somente via HTTPS no payload.
+
 ## [1.2.0] - 2026-09-19
 
 ### Added

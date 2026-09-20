@@ -18,7 +18,11 @@ registros **A** e **AAAA** de cada domínio cadastrado no cofre criptografado.
       │          │   Win:  CNG (bcrypt)     │
       │          └──────────────────────────┘
       │          ┌──────────────────────────┐   ┌─────────────────────────────┐
-      └─────────▶│        http.cpp          │──▶│  Cloudflare Worker (POST)   │
+      └─────────▶│       estado.cpp         │──▶│  ddns_state.json (0600)     │
+                 │  regras 4.1/4.2/4.2.1/4.3│   │  ultimos IPs + contadores   │
+                 └──────────────────────────┘
+                 ┌──────────────────────────┐   ┌─────────────────────────────┐
+                 │         http.cpp         │──▶│  Cloudflare Worker (POST)   │
                  │  POSIX: libcurl          │   │  {"auth_key","domains":{...}│
                  │  Win:   WinHTTP nativo   │   └─────────────────────────────┘
                  └──────────────────────────┘
@@ -81,11 +85,18 @@ O conteúdo (antes da cifragem) é um objeto JSON:
 {
   "api_url": "https://seu-worker.workers.dev/",
   "domains": {
-    "alfa.example.com": "auth_key-do-alfa",
-    "beta.example.com.br": "auth_key-do-beta"
+    "alfa.example.com": { "auth_key": "chave-alfa", "types": ["A", "AAAA"] },
+    "beta.example.com.br": { "auth_key": "chave-beta", "types": ["AAAA"] }
   }
 }
 ```
+
+**Retrocompatibilidade:** o formato antigo (v1.2.0), que armazenava o domínio
+como string (`"alfa.example.com": "auth_key-do-alfa"`), continua sendo aceito
+na leitura (`ler_config_dominio` interpreta a string como `auth_key` com tipos
+padrão `A,AAAA`). Quando `--add` ou o modo de atualização reescrevem o cofre
+(salvar_cofre), o domínio legado é automaticamente migrado para o objeto
+`{auth_key, types:[A,AAAA]}` — sem perda de dados e sem intervenção manual.
 
 Formato em disco do `ddns_vault.enc`:
 
@@ -101,6 +112,48 @@ Derivação de chave: `PBKDF2-HMAC-SHA256(senha, salt, 120.000 iterações)`
 > PBKDF2 e AES-256-CBC (PKCS#7). Por isso o `ddns_vault.enc` gravado no
 > Linux (OpenSSL EVP) é lido normalmente no Windows (CNG) e vice-versa —
 > apenas implementações nativas de cada plataforma sobre o mesmo padrão.
+
+## Estado de execução e acionamento do Worker
+
+O `ddns_manager` decide **se** o Worker deve ser chamado em cada execução
+periódica. As regras resolvem a tensão entre não desperdiçar chamadas na
+Cloudflare e garantir resiliência a falhas e mudanças:
+
+| Regra | Condição | Ação |
+|---|---|---|
+| **4.1** | Última execução sem alteração de IP e sem erro | **Não** acionar o Worker |
+| **4.2** | Houve alteração de IP **ou** erro | Acionar o Worker e abrir a janela pós-evento |
+| **4.2.1** | Execuções seguintes a uma alteração/erro (na janela) | Acionar o Worker (re-verificação) |
+| **4.3** | 5 execuções consecutivas sem alteração e sem erro | Acionar o Worker (sync periódico) |
+
+O estado é persistido em `ddns_state.json` (permissão `0600`, gitignored) e
+contém os últimos IPs conhecidos, o número de execuções na janela pós-evento
+e o contador de execuções silenciosas:
+
+```json
+{"ipv4":"203.0.113.9","ipv6":"2001:db8::1","execpos":2,"quiet":0}
+```
+
+Semântica dos campos:
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `ipv4` / `ipv6` | string | Últimos IPs públicos conhecidos (vazio = nunca obtido) |
+| `execpos` | inteiro (`0..4`) | Execuções restantes da janela pós-evento (4.2.1) |
+| `quiet` | inteiro (≥ 0) | Execuções consecutivas sem alteração e sem erro (4.1/4.3) |
+
+Regras de transição implementadas em `decidir_acionar` (`estado.cpp`):
+
+- `mudou || erro` → aciona o Worker, `execpos = 4`, `quiet = 0`;
+- senão, se `execpos > 0` → aciona e decrementa `execpos`;
+- senão, `quiet++`; se `quiet >= 5` → aciona e zera `quiet`;
+- senão (regra 4.1) → não aciona.
+
+Arquivo ausente ou corrompido (JSON inválido) inicia com o estado padrão
+(IPs vazios, `execpos = 0`, `quiet = 0`), garantindo a sincronização inicial
+na primeira execução válida. Falhas de obtenção de IP ou comunicação com o
+Worker registram erro no estado (abrindo a janela pós-evento), de modo que a
+próxima execução re-tente o envio.
 
 ## Mapeamento de comandos
 
@@ -128,7 +181,7 @@ Derivação de chave: `PBKDF2-HMAC-SHA256(senha, salt, 120.000 iterações)`
 
 ```bash
 make check        # análise estática com -Werror
-make test         # suíte table-driven (133 checks)
+make test         # suíte table-driven (191 checks)
 make sanitize     # ASan + UBSan
 make install      # instala em /usr/local/bin/ddns_manager (requer sudo)
 
@@ -162,3 +215,5 @@ Payload efetivamente recebido pelo Worker:
 ## Próximos passos
 
 - Integração como job agendado no monorepo.
+- Lançamento do Release Candidate v1.3.0-rc.1 (regras 4.1-4.3) para seguida
+  promoção a v1.3.0 estável.
