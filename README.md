@@ -70,13 +70,16 @@ curl -fsSL https://raw.githubusercontent.com/vandinho10/ddns_manager/main/script
 echo "$DDNS_MASTER_PASSWORD" | ./scripts/install.sh --password-stdin
 DDNS_MASTER_PASSWORD=... ./scripts/install.sh
 
+# Release Candidate (RC): instala a última versão de teste (pré-release)
+./scripts/install.sh --nightly
+
 # Simular sem alterar o sistema / remover
 ./scripts/install.sh --dry-run
 ./scripts/install.sh --uninstall            # mantém senha e binário
 ./scripts/install.sh --uninstall --purge    # remove senha e binário
 ```
 
-Opções relevantes: `--version`, `--arch`, `--bin-dir`, `--vault-dir`,
+Opções relevantes: `--version`, `--nightly`, `--arch`, `--bin-dir`, `--vault-dir`,
 `--interval`, `--no-timer`, `--no-linger`, `--no-test-run`, `--yes`, `--purge`,
 `--dry-run`, `--help`.
 

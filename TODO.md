@@ -5,6 +5,8 @@
 - [ ] Avaliar suporte a notificação via Telegram em caso de falha de update.
 - [ ] Promover a versão v1.3.0-rc.1 (regras 4.1-4.3) para v1.3.0 oficial após
       validação em produção.
+- [ ] Validar a flag `--nightly` do instalador em um ambiente real (bash) após
+      a publicaão do primeiro RC no GitHub.
 
 ## Concluído
 

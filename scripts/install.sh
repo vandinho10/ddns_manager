@@ -16,6 +16,7 @@
 #
 # Uso rapido:
 #   ./install.sh                       # instala a ultima versao e agenda a cada 6 min
+#   ./install.sh --nightly             # instala a ultima versao RC (pre-release)
 #   ./install.sh --vault-dir ~/ddns    # informa o diretorio que contem o cofre
 #   ./install.sh --password-stdin      # le a Senha Mestra do stdin (automacao)
 #   ./install.sh --version v1.1.0 --interval 5
@@ -48,6 +49,7 @@ CRON_TAG="# ${SERVICE_NAME} (gerenciado por install.sh)"
 # ------------------------------------------------------------------ #
 TAG=""
 ARCH=""
+NIGHTLY=0
 BIN_DIR="$DEFAULT_BIN_DIR"
 VAULT_DIR=""
 INTERVAL_MIN="$DEFAULT_INTERVAL_MIN"
@@ -87,6 +89,7 @@ Instalador do ddns_manager (Linux).
 
 Opcoes:
   -v, --version TAG     Tag do release (padrao: ultima versao oficial).
+      --nightly         Instala a ultima versao Release Candidate (RC).
   -a, --arch ARCH       Forca a arquitetura (x86_64 | aarch64 | arm32).
   -b, --bin-dir DIR     Diretorio de instalacao do binario (padrao: ~/.local/bin).
   -d, --vault-dir DIR   Diretorio que contem ddns_vault.enc (padrao: diretorio atual).
@@ -211,12 +214,33 @@ latest_tag() {
   # estavel a ser instalada por padrao.
   if command -v curl >/dev/null 2>&1; then
     tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-      | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)" || true
+      | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//; s/"$//' | head -n1)" || true
   fi
   if [[ -z "$tag" ]] && need_gh_auth; then
     tag="$(gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null || true)"
   fi
   [[ -n "$tag" ]] || die "nao foi possivel determinar a ultima versao (informe --version)"
+  printf '%s' "$tag"
+}
+
+# Ultima Release Candidate (RC). O endpoint "releases/latest" ignora
+# pre-releases, entao a lista completa de releases e percorrida para
+# encontrar a RC mais recente (padrao v<X.Y.Z>-rc.<N>).
+latest_rc_tag() {
+  local tag=""
+  if command -v curl >/dev/null 2>&1; then
+    tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" 2>/dev/null \
+      | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//; s/"$//' \
+      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n1)" || true
+  fi
+  if [[ -z "$tag" ]] && need_gh_auth; then
+    tag="$(gh release list -R "$REPO" --json tagName \
+      -q '.[].tagName' 2>/dev/null \
+      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n1 || true)"
+  fi
+  [[ -n "$tag" ]] || die "nenhuma Release Candidate (RC) encontrada (informe --version)"
   printf '%s' "$tag"
 }
 
@@ -387,6 +411,8 @@ do_install() {
   detect_arch
   if [[ -n "$TAG" ]]; then
     detect_tag
+  elif (( NIGHTLY )); then
+    TAG="$(latest_rc_tag)"
   else
     TAG="$(latest_tag)"
   fi
@@ -508,6 +534,7 @@ parse_args() {
   while (( $# > 0 )); do
     case "$1" in
       -v|--version)     TAG="${2:?}"; shift 2 ;;
+      --nightly)        NIGHTLY=1; shift ;;
       -a|--arch)        ARCH="${2:?}"; shift 2 ;;
       -b|--bin-dir)     BIN_DIR="${2:?}"; shift 2 ;;
       -d|--vault-dir)   VAULT_DIR="${2:?}"; shift 2 ;;
@@ -529,6 +556,8 @@ parse_args() {
     || die "--interval deve ser um inteiro positivo"
   (( INTERVAL_MIN < 60 )) || warn "intervalo de ${INTERVAL_MIN} min pode sobrecarregar o provedor DNS"
   [[ "$BIN_DIR" = /* ]] || BIN_DIR="$PWD/$BIN_DIR"
+  [[ -z "$TAG" || "$NIGHTLY" -eq 0 ]] \
+    || die "--version e --nightly sao mutuamente exclusivos"
 }
 
 main() {
