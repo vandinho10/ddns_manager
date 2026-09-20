@@ -14,7 +14,8 @@ void imprimir_ajuda(const char* prog)
     std::cout << "Uso: " << prog << " [comando]\n\n";
     std::cout << "Comandos:\n";
     std::cout << "  " << prog << "                Executa a varredura e atualiza o IP atual no Cloudflare.\n";
-    std::cout << "  " << prog << " --add          Adiciona ou atualiza dominios de acesso no cofre criptografado.\n";
+    std::cout << "  " << prog << " --add [--types A,AAAA]  Adiciona ou atualiza dominios de acesso no cofre criptografado.\n";
+    std::cout << "  " << prog << "                          --types: registros a atualizar (A, AAAA ou A,AAAA; padrao pergunta).\n";
     std::cout << "  " << prog << " --list         Lista os dominios salvos no cofre.\n";
     std::cout << "  " << prog << " --remove <dom> Remove um dominio do cofre.\n";
     std::cout << "  " << prog << " --help         Exibe esta ajuda.\n";
@@ -54,9 +55,8 @@ bool prompt_dados(json::Value& cofre, std::string& api_url, std::string& dominio
         return false;
     }
 
-    std::cout << "Chave de Autenticacao (auth_key) para este dominio: ";
-    std::getline(std::cin, auth_key);
-    auth_key = trim(auth_key);
+    std::cout << "Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ";
+    auth_key = trim(ler_linha_sem_eco());
     if (auth_key.empty())
     {
         std::cerr << "[ERRO] auth_key nao informada.\n";
@@ -65,9 +65,26 @@ bool prompt_dados(json::Value& cofre, std::string& api_url, std::string& dominio
     return true;
 }
 
+// Pergunta os tipos de registro ("A", "AAAA" ou ambos; padrao A,AAAA).
+bool prompt_tipos(std::vector<std::string>& types)
+{
+    std::cout << "Tipos de registro a atualizar (A, AAAA ou A,AAAA; "
+                 "Enter = ambos): ";
+    std::string entrada;
+    std::getline(std::cin, entrada);
+    entrada = trim(entrada);
+    if (entrada.empty())
+    {
+        types.push_back(TIPO_A);
+        types.push_back(TIPO_AAAA);
+        return true;
+    }
+    return parsear_tipos(entrada, types);
+}
+
 } // namespace
 
-int cmd_adicionar(const std::string& caminho)
+int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
 {
     std::cout << "Digite a Senha Mestra do Cofre: ";
     const std::string senha = obter_senha_mestra();
@@ -100,18 +117,38 @@ int cmd_adicionar(const std::string& caminho)
     if (!prompt_dados(cofre, api_url, dominio, auth_key))
         return EXIT_FAILURE;
 
+    std::vector<std::string> types;
+    if (!tipos_flag.empty())
+    {
+        if (!parsear_tipos(tipos_flag, types))
+        {
+            std::cerr << "[ERRO] --types invalido. Use A, AAAA ou A,AAAA.\n";
+            return EXIT_FAILURE;
+        }
+    }
+    else if (!prompt_tipos(types))
+    {
+        std::cerr << "[ERRO] Tipos de registro invalidos. Use A, AAAA ou A,AAAA.\n";
+        return EXIT_FAILURE;
+    }
+
     cofre.set("api_url", json::Value::de_string(api_url));
+
+    ConfigDominio cfg;
+    cfg.auth_key = auth_key;
+    cfg.types = types;
 
     json::Value dominios = json::Value::objeto();
     if (cofre.tem("domains") && cofre.get("domains").is_objeto())
         dominios = cofre.get("domains");
-    dominios.set(dominio, json::Value::de_string(auth_key));
+    dominios.set(dominio, montar_valor_dominio(cfg));
     cofre.set("domains", dominios);
 
     if (salvar_cofre(cofre, senha, caminho))
     {
-        std::cout << "\n[SUCESSO] Dominio '" << dominio
-                  << "' gravado de forma criptografada (" << caminho << ").\n";
+        std::cout << "\n[SUCESSO] Dominio '" << dominio << "' gravado de forma"
+                  << " criptografada (" << caminho << ") com tipos: "
+                  << tipos_para_texto(types) << ".\n";
         return EXIT_SUCCESS;
     }
     std::cerr << "\n[ERRO] Falha ao gravar o cofre criptografado.\n";
@@ -138,8 +175,15 @@ int cmd_listar(const std::string& caminho)
         const json::Value& dominios = cofre.get("domains");
         for (json::Value::iterator it = dominios.begin(); it != dominios.end(); ++it)
         {
-            // Exibe o dominio; a auth_key permanece oculta.
-            std::cout << "  - " << it->first << " (auth_key armazenada)\n";
+            // Exibe o dominio e seus tipos; a auth_key permanece oculta.
+            ConfigDominio cfg;
+            std::string tipos;
+            if (ler_config_dominio(it->second, cfg))
+                tipos = tipos_para_texto(cfg.types);
+            else
+                tipos = "desconhecido";
+            std::cout << "  - " << it->first << " (auth_key armazenada; tipos: "
+                      << tipos << ")\n";
         }
         if (dominios.size() == 0)
             std::cout << "  (nenhum)\n";
@@ -208,6 +252,10 @@ int cmd_atualizar(const std::string& caminho)
         return EXIT_FAILURE;
     }
 
+    // Carrega o estado persistido da ultima execucao (regras 4.1-4.3).
+    EstadoExecucao estado;
+    carregar_estado(ARQUIVO_ESTADO, estado);
+
     std::cout << "[INFO] Obtendo IPs publicos (IPv4 e IPv6)...\n";
     std::string ipv4;
     std::string ipv6;
@@ -215,6 +263,11 @@ int cmd_atualizar(const std::string& caminho)
     const bool tem_ipv6 = obter_ipv6_publico(ipv6);
     if (!tem_ipv4 && !tem_ipv6)
     {
+        // Falha total de obtencao: registra o erro no estado para que a
+        // proxima execucao seja tratada dentro da janela pos-evento (4.2).
+        EstadoExecucao novo;
+        (void)decidir_acionar(estado, false, true, novo);
+        salvar_estado(ARQUIVO_ESTADO, novo);
         std::cerr << "[ERRO] Nao foi possivel obter IP publico (IPv4/IPv6).\n";
         return EXIT_FAILURE;
     }
@@ -223,25 +276,89 @@ int cmd_atualizar(const std::string& caminho)
     if (tem_ipv6)
         std::cout << "[INFO] IPv6 publico detectado: " << ipv6 << "\n";
 
+    const bool mudou = ip_publico_mudou(estado, ipv4, ipv6, tem_ipv4, tem_ipv6);
+
+    EstadoExecucao estado_novo;
+    const bool acionar = decidir_acionar(estado, mudou, false, estado_novo);
+    // Atualiza a familia somente quando obtida nesta execucao; familias
+    // temporariamente indisponiveis preservam o ultimo IP conhecido.
+    if (tem_ipv4)
+        estado_novo.ipv4 = ipv4;
+    if (tem_ipv6)
+        estado_novo.ipv6 = ipv6;
+
+    if (!acionar)
+    {
+        // Regra 4.1: sem alteracao de IP e sem erro -> nao aciona o Worker.
+        salvar_estado(ARQUIVO_ESTADO, estado_novo);
+        std::cout << "[INFO] IP publico inalterado; Worker nao acionado "
+                     "(regra 4.1).\n";
+        return EXIT_SUCCESS;
+    }
+
+    // Migracoes retrocompatíveis: o cofre v1.2.0 armazenava o dominio como
+    // string (auth_key pura); converte para {auth_key, types:[A,AAAA]} e
+    // reescreve o cofre de forma idempotente quando detectado.
+    json::Value dominios = json::Value::objeto();
+    if (cofre.tem("domains") && cofre.get("domains").is_objeto())
+        dominios = cofre.get("domains");
+    bool cofre_migrado = false;
+    for (json::Value::iterator it = dominios.begin(); it != dominios.end(); ++it)
+    {
+        if (!it->second.is_objeto())
+        {
+            ConfigDominio cfg;
+            if (ler_config_dominio(it->second, cfg))
+            {
+                dominios.set(it->first, montar_valor_dominio(cfg));
+                cofre_migrado = true;
+            }
+        }
+    }
+    if (cofre_migrado)
+    {
+        cofre.set("domains", dominios);
+        if (salvar_cofre(cofre, senha, caminho))
+            std::cout << "[INFO] Cofre migrado do formato legado para o novo "
+                         "formato (auth_key + types).\n";
+        else
+            std::cerr << "[AVISO] Nao foi possivel persistir a migracao do "
+                         "formato do cofre.\n";
+    }
+
     // Agrupa os dominios por auth_key: o Worker valida a mesma auth_key para
     // todo o lote, entao dominios com chaves distintas exigem requisicoes
     // separadas (mapa auth_key -> dominios).
     std::map<std::string, std::vector<DadosDominio>> lotes;
-    const json::Value& dominios = cofre.get("domains");
-    for (json::Value::iterator it = dominios.begin(); it != dominios.end(); ++it)
+    // Dominio -> DadosDominio efetivamente enviado (para mensagem de sucesso
+    // exibir somente os IPs dos tipos configurados).
+    std::map<std::string, DadosDominio> enviados;
+    const json::Value& dominios_final = dominios;
+    for (json::Value::iterator it = dominios_final.begin(); it != dominios_final.end(); ++it)
     {
-        const json::Value& valor = it->second;
-        if (!valor.is_string())
+        ConfigDominio cfg;
+        if (!ler_config_dominio(it->second, cfg))
         {
             std::cerr << "[ERRO] Dominio '" << it->first
-                      << "' sem auth_key valida no cofre. Ignorado.\n";
+                      << "' sem configuracao valida no cofre. Ignorado.\n";
             continue;
         }
         DadosDominio d;
         d.dominio = it->first;
-        d.ipv4 = tem_ipv4 ? ipv4 : "";
-        d.ipv6 = tem_ipv6 ? ipv6 : "";
-        lotes[valor.como_string()].push_back(d);
+        // Propaga o filtro estrito de tipos para o payload (somente os IPs
+        // dos tipos declarados no cofre serao enviados).
+        d.types = cfg.types;
+        d.ipv4 = "";
+        d.ipv6 = "";
+        for (const auto& t : cfg.types)
+        {
+            if (t == TIPO_A && tem_ipv4)
+                d.ipv4 = ipv4;
+            else if (t == TIPO_AAAA && tem_ipv6)
+                d.ipv6 = ipv6;
+        }
+        lotes[cfg.auth_key].push_back(d);
+        enviados[d.dominio] = d;
     }
     if (lotes.empty())
     {
@@ -266,10 +383,14 @@ int cmd_atualizar(const std::string& caminho)
             if (r.sucesso)
             {
                 std::cout << "[SUCESSO] Dominio '" << r.dominio << "' atualizado";
-                if (tem_ipv4)
-                    std::cout << " (A: " << ipv4 << ")";
-                if (tem_ipv6)
-                    std::cout << " (AAAA: " << ipv6 << ")";
+                const auto it_envio = enviados.find(r.dominio);
+                if (it_envio != enviados.end())
+                {
+                    if (!it_envio->second.ipv4.empty())
+                        std::cout << " (A: " << it_envio->second.ipv4 << ")";
+                    if (!it_envio->second.ipv6.empty())
+                        std::cout << " (AAAA: " << it_envio->second.ipv6 << ")";
+                }
                 std::cout << "\n";
             }
             else
@@ -279,6 +400,14 @@ int cmd_atualizar(const std::string& caminho)
             }
         }
     }
+
+    if (falhas)
+    {
+        // Erro nesta execucao -> registra a janela pos-evento (4.2/4.2.1),
+        // fazendo as proximas execucoes re-verificarem o Worker.
+        (void)decidir_acionar(estado_novo, false, true, estado_novo);
+    }
+    salvar_estado(ARQUIVO_ESTADO, estado_novo);
     return falhas ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
@@ -302,7 +431,23 @@ int main(int argc, char* argv[])
             return EXIT_SUCCESS;
         }
         if (arg1 == "--add" || arg1 == "--update")
-            return cmd_adicionar(ARQUIVO_VAULT);
+        {
+            std::string tipos;
+            for (int i = 2; i < argc; ++i)
+            {
+                const std::string arg = argv[i];
+                if (arg == "--types" && i + 1 < argc)
+                {
+                    tipos = argv[++i];
+                }
+                else
+                {
+                    std::cerr << "[ERRO] Opcao desconhecida: " << arg << "\n";
+                    return EXIT_FAILURE;
+                }
+            }
+            return cmd_adicionar(ARQUIVO_VAULT, tipos);
+        }
         if (arg1 == "--list")
             return cmd_listar(ARQUIVO_VAULT);
         if (arg1 == "--remove")
