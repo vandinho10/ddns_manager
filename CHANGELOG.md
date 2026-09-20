@@ -37,6 +37,13 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
   ou o modo de atualização reescrevem o cofre — sem quebra de dados existentes
   e sem exigir intervenção manual.
 
+### Added
+
+- **Flag `--nightly` no instalador**: instala automaticamente a última versão
+  Release Candidate (RC) publicada, percorrendo a lista de releases do GitHub
+  (o endpoint `releases/latest` ignora pré-releases). É mutuamente exclusiva
+  com `--version`.
+
 ### Security
 
 - `auth_key` agora é lida com **digitação oculta** (eco desabilitado), de forma
