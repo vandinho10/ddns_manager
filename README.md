@@ -108,7 +108,7 @@ apontado por `--vault-dir`. Se ausente, o instalador oferece criá-lo.
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.3.0-rc.1)
+make              # build otimizado de release (v1.3.0-rc.2)
 make check        # análise estática -Werror (zero warnings)
 make test         # suíte table-driven (196 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer
@@ -158,7 +158,8 @@ gerado automaticamente pela CI (GitHub Actions).
 ## Uso
 
 ```bash
-./ddns_manager --add      # cria ou atualiza o cofre (interativo)
+./ddns_manager --add      # adiciona um domínio novo no cofre (interativo)
+./ddns_manager --update [--types A,AAAA]  # atualiza um domínio; campos em branco mantêm os valores atuais
 ./ddns_manager --list     # lista API URL e domínios cadastrados
 ./ddns_manager --remove <dominio>   # remove um domínio do cofre
 ./ddns_manager            # obtém IP público e atualiza todos os domínios
@@ -180,6 +181,10 @@ Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ███
 
 Para adicionar outro domínio basta rodar `--add` novamente (o cofre é aberto
 com a mesma Senha Mestra e o novo domínio é inserido sem apagar os anteriores).
+
+No `--update` de um domínio existente, apenas o domínio é obrigatório: campos
+vazios (URL, `auth_key` e `types`) mantêm os valores atuais cadastrados no
+cofre.
 
 ## Automação (cron / systemd)
 

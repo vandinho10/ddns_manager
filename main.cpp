@@ -14,7 +14,8 @@ void imprimir_ajuda(const char* prog)
     std::cout << "Uso: " << prog << " [comando]\n\n";
     std::cout << "Comandos:\n";
     std::cout << "  " << prog << "                Executa a varredura e atualiza o IP atual no Cloudflare.\n";
-    std::cout << "  " << prog << " --add [--types A,AAAA]  Adiciona ou atualiza dominios de acesso no cofre criptografado.\n";
+    std::cout << "  " << prog << " --add [--types A,AAAA]  Adiciona um dominio novo no cofre criptografado.\n";
+    std::cout << "  " << prog << " --update [--types A,AAAA] Atualiza um dominio; campos em branco mantem os valores atuais.\n";
     std::cout << "  " << prog << "                          --types: registros a atualizar (A, AAAA ou A,AAAA; padrao pergunta).\n";
     std::cout << "  " << prog << " --list         Lista os dominios salvos no cofre.\n";
     std::cout << "  " << prog << " --remove <dom> Remove um dominio do cofre.\n";
@@ -28,6 +29,14 @@ void imprimir_versao(const char* prog)
 }
 
 namespace {
+
+// Retorna true se o dominio ja esta cadastrado no cofre (em qualquer formato,
+// objeto atual ou string legada).
+bool cofre_existente_dominio(const json::Value& cofre, const std::string& dominio)
+{
+    return cofre.tem("domains") && cofre.get("domains").is_objeto()
+        && cofre.get("domains").tem(dominio);
+}
 
 bool prompt_dados(json::Value& cofre, std::string& api_url, std::string& dominio,
                   std::string& auth_key)
@@ -55,28 +64,35 @@ bool prompt_dados(json::Value& cofre, std::string& api_url, std::string& dominio
         return false;
     }
 
-    std::cout << "Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ";
-    auth_key = trim(ler_linha_sem_eco());
-    if (auth_key.empty())
+    if (cofre_existente_dominio(cofre, dominio))
     {
-        std::cerr << "[ERRO] auth_key nao informada.\n";
-        return false;
+        // Update de dominio existente: campos em branco mantem os valores
+        // atuais (mesmo comportamento da URL do Worker).
+        std::cout << "Chave de Autenticacao (auth_key) para este dominio"
+                     " (Enter para manter a atual): ";
     }
+    else
+    {
+        std::cout << "Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ";
+    }
+    auth_key = trim(ler_linha_sem_eco());
     return true;
 }
 
-// Pergunta os tipos de registro ("A", "AAAA" ou ambos; padrao A,AAAA).
-bool prompt_tipos(std::vector<std::string>& types)
+// Pergunta os tipos de registro ("A", "AAAA" ou ambos). Em update de dominio
+// existente, entrada vazia mantem os tipos atuais; em dominio novo, vazia
+// equivale ao padrao A,AAAA. Sinaliza em "vazio" quando o usuario nao digitou.
+bool prompt_tipos(std::vector<std::string>& types, bool& vazio)
 {
+    vazio = false;
     std::cout << "Tipos de registro a atualizar (A, AAAA ou A,AAAA; "
-                 "Enter = ambos): ";
+                 "Enter = manter atual): ";
     std::string entrada;
     std::getline(std::cin, entrada);
     entrada = trim(entrada);
     if (entrada.empty())
     {
-        types.push_back(TIPO_A);
-        types.push_back(TIPO_AAAA);
+        vazio = true;
         return true;
     }
     return parsear_tipos(entrada, types);
@@ -117,6 +133,31 @@ int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
     if (!prompt_dados(cofre, api_url, dominio, auth_key))
         return EXIT_FAILURE;
 
+    // Update de dominio existente: campos em branco mantem os valores atuais.
+    const bool ja_existe = cofre_existente_dominio(cofre, dominio);
+
+    json::Value config_atual;
+    if (ja_existe)
+        config_atual = cofre.get("domains").get(dominio);
+
+    ConfigDominio cfg_atual;
+    const bool tem_atual = ja_existe && ler_config_dominio(config_atual, cfg_atual);
+
+    if (auth_key.empty())
+    {
+        if (tem_atual)
+        {
+            auth_key = cfg_atual.auth_key;
+            std::cout << "[INFO] auth_key mantida (Enter).\n";
+        }
+        else
+        {
+            std::cerr << "[ERRO] auth_key nao informada para o novo dominio " << dominio
+                      << ".\n";
+            return EXIT_FAILURE;
+        }
+    }
+
     std::vector<std::string> types;
     if (!tipos_flag.empty())
     {
@@ -126,10 +167,19 @@ int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
             return EXIT_FAILURE;
         }
     }
-    else if (!prompt_tipos(types))
+    else
     {
-        std::cerr << "[ERRO] Tipos de registro invalidos. Use A, AAAA ou A,AAAA.\n";
-        return EXIT_FAILURE;
+        bool tipos_vazio = false;
+        if (!prompt_tipos(types, tipos_vazio))
+        {
+            std::cerr << "[ERRO] Tipos de registro invalidos. Use A, AAAA ou A,AAAA.\n";
+            return EXIT_FAILURE;
+        }
+        if (tipos_vazio && tem_atual)
+        {
+            types = cfg_atual.types;
+            std::cout << "[INFO] Tipos mantidos: " << tipos_para_texto(types) << " (Enter).\n";
+        }
     }
 
     cofre.set("api_url", json::Value::de_string(api_url));

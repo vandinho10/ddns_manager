@@ -36,6 +36,10 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
   automaticamente migrado para `{auth_key, types:[A,AAAA]}` quando `--add`
   ou o modo de atualização reescrevem o cofre — sem quebra de dados existentes
   e sem exigir intervenção manual.
+- **Comportamento do `--update`**: ao atualizar um domínio existente, apenas o
+  domínio é obrigatório. Campos em branco (URL do Worker, `auth_key` e `types`)
+  mantêm os valores atuais, seguindo o padrão já adotado na URL — sem exigir
+  redigitação da chave a cada ajuste.
 
 ### Added
 
