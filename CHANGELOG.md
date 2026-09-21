@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
-## [Unreleased]
+## [1.3.0] - 2026-09-20
 
 ### Added
 
@@ -25,6 +25,10 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
   (IPv4), `AAAA` (IPv6) ou ambos. O cofre passa a armazenar
   `{auth_key, types}` e o payload ao Worker envia somente os IPs dos tipos
   declarados.
+- **Flag `--nightly` no instalador**: instala automaticamente a última versão
+  Release Candidate (RC) publicada, percorrendo a lista de releases do GitHub
+  (o endpoint `releases/latest` ignora pré-releases). É mutuamente exclusiva
+  com `--version`.
 - Suíte de testes ampliada para 196 checks (semântica do estado: comparação de
   IPs, regras 4.1/4.2/4.2.1/4.3, sequências completas, persistência JSON e
   retrocompatibilidade do cofre legado).
@@ -40,13 +44,6 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
   domínio é obrigatório. Campos em branco (URL do Worker, `auth_key` e `types`)
   mantêm os valores atuais, seguindo o padrão já adotado na URL — sem exigir
   redigitação da chave a cada ajuste.
-
-### Added
-
-- **Flag `--nightly` no instalador**: instala automaticamente a última versão
-  Release Candidate (RC) publicada, percorrendo a lista de releases do GitHub
-  (o endpoint `releases/latest` ignora pré-releases). É mutuamente exclusiva
-  com `--version`.
 
 ### Security
 
