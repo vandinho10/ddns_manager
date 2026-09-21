@@ -3,13 +3,13 @@
 ## A definir
 
 - [ ] Avaliar suporte a notificação via Telegram em caso de falha de update.
-- [ ] Promover a versão v1.3.0-rc.2 (regras 4.1-4.3 + `--update`) para v1.3.0
-      oficial após validação em produção.
-- [ ] Validar a flag `--nightly` do instalador em um ambiente real (bash) após
-      a publicaão do primeiro RC no GitHub.
 
 ## Concluído
 
+- [x] Promover v1.3.0-rc.2 (regras 4.1-4.3 + `--update`, flag `--nightly`) para
+      a versão oficial v1.3.0 após validação em produção.
+- [x] Validar a flag `--nightly` do instalador em ambiente real (bash) após a
+      publicação do RC no GitHub.
 - [x] Ajustar `--update` para manter os valores atuais quando os campos forem
       deixados em branco (apenas o domínio é obrigatório), seguindo o padrão da
       URL do Worker — candidato v1.3.0-rc.2.
