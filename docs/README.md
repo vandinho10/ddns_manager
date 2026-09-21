@@ -160,7 +160,7 @@ próxima execução re-tente o envio.
 | Comando | Ação | Exit code |
 |---|---|---|
 | (sem argumento) | Obtém IP e atualiza todos os domínios | `0` ok / `1` falha |
-| `--add` / `--update` | Insere ou atualiza um domínio no cofre | `0` ok |
+| `--add` / `--update` | Insere um domínio novo ou atualiza um existente (campos em branco mantêm os valores atuais) | `0` ok |
 | `--list` | Lista API URL e domínios (auth_key oculta) | `0` ok |
 | `--remove <domínio>` | Remove um domínio | `0` ok / `1` falha |
 | `--help` | Exibe ajuda | `0` |
@@ -215,5 +215,5 @@ Payload efetivamente recebido pelo Worker:
 ## Próximos passos
 
 - Integração como job agendado no monorepo.
-- Lançamento do Release Candidate v1.3.0-rc.1 (regras 4.1-4.3) para seguida
-  promoção a v1.3.0 estável.
+- Lançamento do Release Candidate v1.3.0-rc.2 (regras 4.1-4.3 e `--update`
+  com manutenção dos valores atuais) para seguida promoção a v1.3.0 estável.
