@@ -215,5 +215,4 @@ Payload efetivamente recebido pelo Worker:
 ## Próximos passos
 
 - Integração como job agendado no monorepo.
-- Lançamento do Release Candidate v1.3.0-rc.2 (regras 4.1-4.3 e `--update`
-  com manutenção dos valores atuais) para seguida promoção a v1.3.0 estável.
+- Avaliar suporte a notificação via Telegram em caso de falha de update.
