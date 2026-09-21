@@ -3,13 +3,16 @@
 ## A definir
 
 - [ ] Avaliar suporte a notificação via Telegram em caso de falha de update.
-- [ ] Promover a versão v1.3.0-rc.1 (regras 4.1-4.3) para v1.3.0 oficial após
-      validação em produção.
+- [ ] Promover a versão v1.3.0-rc.2 (regras 4.1-4.3 + `--update`) para v1.3.0
+      oficial após validação em produção.
 - [ ] Validar a flag `--nightly` do instalador em um ambiente real (bash) após
       a publicaão do primeiro RC no GitHub.
 
 ## Concluído
 
+- [x] Ajustar `--update` para manter os valores atuais quando os campos forem
+      deixados em branco (apenas o domínio é obrigatório), seguindo o padrão da
+      URL do Worker — candidato v1.3.0-rc.2.
 - [x] Regras de acionamento do Worker 4.1/4.2/4.2.1/4.3 com estado persistido
       em `ddns_state.json` (`0600`, gitignored), migração automática do cofre
       legado (string → `{auth_key, types}`) e suíte expandida para 196 checks
