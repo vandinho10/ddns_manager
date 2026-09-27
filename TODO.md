@@ -6,6 +6,9 @@
 
 ## Concluído
 
+- [x] Remover IPs públicos reais da documentação (`docs/README.md`) via
+      reescrita de histórico (`git filter-repo`), substituídos por faixas de
+      documentação (RFC 5737/3849); tarballs releases verificados limpos.
 - [x] Seleção de placa de rede para obtenção dos IPs: flag `--iface` +
       pergunta interativa com mais de uma interface ativa, persistência no
       cofre e vínculo de origem no transporte HTTP — promovida em v1.4.0.
