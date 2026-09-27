@@ -8,7 +8,9 @@
 
 - [x] Seleção de placa de rede para obtenção dos IPs: flag `--iface` +
       pergunta interativa com mais de uma interface ativa, persistência no
-      cofre e vínculo de origem no transporte HTTP — candidato v1.4.0-rc.2.
+      cofre e vínculo de origem no transporte HTTP — promovida em v1.4.0.
+- [x] Promover v1.4.0-rc.2 (seleção de placa + build Windows portável) para a
+      versão oficial v1.4.0 após CI verde.
 - [x] Promover v1.3.0-rc.2 (regras 4.1-4.3 + `--update`, flag `--nightly`) para
       a versão oficial v1.3.0 após validação em produção.
 - [x] Validar a flag `--nightly` do instalador em ambiente real (bash) após a
