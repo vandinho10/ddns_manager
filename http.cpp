@@ -9,6 +9,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <winhttp.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <vector>
 #else
 #include <curl/curl.h>
@@ -69,9 +71,11 @@ bool crkar_url(const std::string& url, UrlInfo& info)
 
 // Executa uma requisicao WinHTTP completa. Retorna true quando o servidor
 // respondeu com 2xx. Preenche codigo_http e resposta em qualquer cenário.
+// "iface" vincula a origem ao endereco local da interface selecionada.
 bool requisicao_winhttp(const std::string& url, bool post,
                         const std::string& corpo, long timeout_s,
-                        long& codigo_http, std::string& resposta)
+                        long& codigo_http, std::string& resposta,
+                        const std::string& iface)
 {
     codigo_http = 0;
     resposta.clear();
@@ -82,6 +86,13 @@ bool requisicao_winhttp(const std::string& url, bool post,
         resposta = "URL invalida: " + url;
         return false;
     }
+
+    // Resolve o endereco local da interface escolhida (apenas IPv4/IPv6 cidr
+    // sidos suportados pelo socket de origem do WinHTTP).
+    std::string iface_ipv4;
+    std::string iface_ipv6;
+    if (!iface.empty() && iface != "auto")
+        (void)obter_endereco_local(iface, iface_ipv4, iface_ipv6);
 
     std::wstring ua(L"ddns_manager/");
     for (const char* v = DDNS_VERSION; *v != '\0'; ++v)
@@ -121,6 +132,37 @@ bool requisicao_winhttp(const std::string& url, bool post,
         WinHttpCloseHandle(sess);
         return false;
     }
+
+#ifdef WINHTTP_OPTION_LOCAL_ADDRESS
+    // Vincula a origem da conexao ao endereco local da interface escolhida,
+    // quando disponivel (Windows 10 1809+). Endereco IPv6 tem precedencia
+    // quando a URL e HTTPS/IPv6; caso contrario usa o IPv4.
+    const sockaddr* vinculo = nullptr;
+    int tam_vinculo = 0;
+    if (!iface_ipv6.empty() && (info.https || iface_ipv4.empty()))
+    {
+        static sockaddr_in6 sa6 = {};
+        sa6.sin6_family = AF_INET6;
+        if (::inet_pton(AF_INET6, iface_ipv6.c_str(), &sa6.sin6_addr) == 1)
+        {
+            vinculo = reinterpret_cast<const sockaddr*>(&sa6);
+            tam_vinculo = static_cast<int>(sizeof(sa6));
+        }
+    }
+    if (vinculo == nullptr && !iface_ipv4.empty())
+    {
+        static sockaddr_in sa4 = {};
+        sa4.sin_family = AF_INET;
+        if (::inet_pton(AF_INET, iface_ipv4.c_str(), &sa4.sin_addr) == 1)
+        {
+            vinculo = reinterpret_cast<const sockaddr*>(&sa4);
+            tam_vinculo = static_cast<int>(sizeof(sa4));
+        }
+    }
+    if (vinculo != nullptr)
+        (void)WinHttpSetOption(req, WINHTTP_OPTION_LOCAL_ADDRESS, vinculo,
+                               static_cast<DWORD>(tam_vinculo));
+#endif
 
     // Segue redirecionamentos como a libcurl fazia (FOLLOWLOCATION).
     DWORD politica_redirect = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
@@ -202,19 +244,21 @@ bool requisicao_winhttp(const std::string& url, bool post,
 
 } // namespace
 
-std::string http_get(const std::string& url, long timeout_s)
+std::string http_get(const std::string& url, long timeout_s,
+                     const std::string& iface)
 {
     long codigo = 0;
     std::string resposta;
-    if (!requisicao_winhttp(url, false, "", timeout_s, codigo, resposta))
+    if (!requisicao_winhttp(url, false, "", timeout_s, codigo, resposta, iface))
         return {};
     return resposta;
 }
 
 bool http_post_json(const std::string& url, const std::string& corpo,
-                    long timeout_s, long& codigo_http, std::string& resposta)
+                    long timeout_s, long& codigo_http, std::string& resposta,
+                    const std::string& iface)
 {
-    return requisicao_winhttp(url, true, corpo, timeout_s, codigo_http, resposta);
+    return requisicao_winhttp(url, true, corpo, timeout_s, codigo_http, resposta, iface);
 }
 
 #else // POSIX: libcurl
@@ -240,7 +284,8 @@ size_t callback_escrita(void* conteudo, size_t tamanho, size_t nmemb, void* user
 
 } // namespace
 
-std::string http_get(const std::string& url, long timeout_s)
+std::string http_get(const std::string& url, long timeout_s,
+                     const std::string& iface)
 {
     if (url.empty() || !curl_inicializada())
         return "";
@@ -256,6 +301,8 @@ std::string http_get(const std::string& url, long timeout_s)
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "ddns_manager/" DDNS_VERSION);
+    if (!iface.empty() && iface != "auto")
+        curl_easy_setopt(curl, CURLOPT_INTERFACE, iface.c_str());
 
     const CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -266,7 +313,8 @@ std::string http_get(const std::string& url, long timeout_s)
 }
 
 bool http_post_json(const std::string& url, const std::string& corpo,
-                    long timeout_s, long& codigo_http, std::string& resposta)
+                    long timeout_s, long& codigo_http, std::string& resposta,
+                    const std::string& iface)
 {
     codigo_http = 0;
     if (url.empty() || !curl_inicializada())
@@ -297,6 +345,8 @@ bool http_post_json(const std::string& url, const std::string& corpo,
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "ddns_manager/" DDNS_VERSION);
+    if (!iface.empty() && iface != "auto")
+        curl_easy_setopt(curl, CURLOPT_INTERFACE, iface.c_str());
 
     const CURLcode res = curl_easy_perform(curl);
     long http = 0;
@@ -381,18 +431,18 @@ bool eh_ipv6(const std::string& texto)
     return tem_dois_pontos && pontos_seguidos <= 2;
 }
 
-bool obter_ip_publico(std::string& ip)
+bool obter_ip_publico(std::string& ip, const std::string& iface)
 {
-    const std::string corpo = http_get("https://api.ipify.org", TIMEOUT_HTTP);
+    const std::string corpo = http_get("https://api.ipify.org", TIMEOUT_HTTP, iface);
     if (corpo.empty())
         return false;
     ip = parear_ip(corpo);
     return eh_ipv4(ip);
 }
 
-bool obter_ipv6_publico(std::string& ip)
+bool obter_ipv6_publico(std::string& ip, const std::string& iface)
 {
-    const std::string corpo = http_get("https://api6.ipify.org", TIMEOUT_HTTP);
+    const std::string corpo = http_get("https://api6.ipify.org", TIMEOUT_HTTP, iface);
     if (corpo.empty())
         return false;
     ip = parear_ip(corpo);
@@ -549,7 +599,7 @@ bool interpretar_resposta_worker(const std::string& resposta,
 bool notificar_worker(const std::string& api_url, const std::string& auth_key,
                       const std::vector<DadosDominio>& dominios,
                       std::vector<ResultadoDominio>& resultados,
-                      std::string& erro)
+                      std::string& erro, const std::string& iface)
 {
     resultados.clear();
     erro.clear();
@@ -558,7 +608,7 @@ bool notificar_worker(const std::string& api_url, const std::string& auth_key,
 
     long http = 0;
     std::string resposta;
-    if (!http_post_json(api_url, corpo, TIMEOUT_HTTP, http, resposta))
+    if (!http_post_json(api_url, corpo, TIMEOUT_HTTP, http, resposta, iface))
     {
         std::string detalhe = ::ddns::trim(resposta);
         erro = "HTTP " + std::to_string(http);

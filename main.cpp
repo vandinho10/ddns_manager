@@ -14,9 +14,10 @@ void imprimir_ajuda(const char* prog)
     std::cout << "Uso: " << prog << " [comando]\n\n";
     std::cout << "Comandos:\n";
     std::cout << "  " << prog << "                Executa a varredura e atualiza o IP atual no Cloudflare.\n";
-    std::cout << "  " << prog << " --add [--types A,AAAA]  Adiciona um dominio novo no cofre criptografado.\n";
-    std::cout << "  " << prog << " --update [--types A,AAAA] Atualiza um dominio; campos em branco mantem os valores atuais.\n";
+    std::cout << "  " << prog << " --add [--types A,AAAA] [--iface auto|eth0]  Adiciona um dominio novo no cofre criptografado.\n";
+    std::cout << "  " << prog << " --update [--types A,AAAA] [--iface auto|eth0] Atualiza um dominio; campos em branco mantem os valores atuais.\n";
     std::cout << "  " << prog << "                          --types: registros a atualizar (A, AAAA ou A,AAAA; padrao pergunta).\n";
+    std::cout << "  " << prog << "                          --iface: placa de rede usada para obter os IPs (auto = rota padrao).\n";
     std::cout << "  " << prog << " --list         Lista os dominios salvos no cofre.\n";
     std::cout << "  " << prog << " --remove <dom> Remove um dominio do cofre.\n";
     std::cout << "  " << prog << " --help         Exibe esta ajuda.\n";
@@ -98,9 +99,57 @@ bool prompt_tipos(std::vector<std::string>& types, bool& vazio)
     return parsear_tipos(entrada, types);
 }
 
+// Pergunta qual placa de rede usar para obter os IPs. Com uma unica placa
+// elegivel a escolha e automatica; com nenhuma, "auto" (rota padrao); com
+// multiplas, apresenta a lista e solicita uma escolha valida.
+std::string prompt_iface(const std::string& atual)
+{
+    std::vector<std::string> interfaces;
+    if (!listar_interfaces_ativas(interfaces) || interfaces.empty())
+        return "auto";
+    if (interfaces.size() == 1)
+    {
+        std::cout << "[INFO] Placa de rede ativa detectada: " << interfaces[0]
+                  << " (usada para obter os IPs).\n";
+        return interfaces[0];
+    }
+
+    // Multiplas placas: apresenta as opcoes e solicita a escolha.
+    std::cout << "Placa(s) de rede ativa(s):\n";
+    for (size_t i = 0; i < interfaces.size(); ++i)
+        std::cout << "  " << (i + 1) << ") " << interfaces[i] << "\n";
+    std::cout << "  A) auto (rota padrao do sistema)\n";
+
+    std::string legenda = "Placa para obter os IPs";
+    if (!atual.empty() && atual != "auto")
+        legenda += " (atual: " + atual + ")";
+    legenda += " [numero, nome, ou auto; Enter mantem]: ";
+    std::cout << legenda;
+
+    std::string escolha;
+    std::getline(std::cin, escolha);
+    escolha = trim(escolha);
+    if (escolha.empty())
+        return atual.empty() ? "auto" : atual;
+
+    for (size_t i = 0; i < interfaces.size(); ++i)
+    {
+        if (escolha == std::to_string(i + 1))
+            return interfaces[i];
+    }
+    if (escolha == "auto" || escolha == "A" || escolha == "a" || escolha == "0")
+        return "auto";
+    if (nome_iface_valido(escolha))
+        return escolha;
+    std::cout << "[AVISO] Nome de placa desconhecido ('" << escolha
+              << "'); usando auto.\n";
+    return "auto";
+}
+
 } // namespace
 
-int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
+int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag,
+                  const std::string& iface_flag)
 {
     std::cout << "Digite a Senha Mestra do Cofre: ";
     const std::string senha = obter_senha_mestra();
@@ -182,6 +231,31 @@ int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
         }
     }
 
+    // Selecao da placa de rede usada para obter os IPs (armazenada no cofre).
+    // "auto" = rota padrao do sistema (independente da placa escolhida).
+    const std::string atual = cofre.as_string("iface", "");
+    std::string iface;
+    if (!iface_flag.empty())
+    {
+        if (iface_flag != "auto" && !nome_iface_valido(iface_flag))
+        {
+            std::cerr << "[ERRO] --iface invalido. Use auto ou um nome de placa.\n";
+            return EXIT_FAILURE;
+        }
+        iface = iface_flag;
+    }
+    else if (atual.empty() || atual == "auto")
+    {
+        // Sem selecao previa: com uma unica placa ativa usa-a; multiplas
+        // placas exigem escolha; nenhuma placa elegivel -> auto.
+        iface = prompt_iface(atual);
+    }
+    else
+    {
+        iface = atual;
+    }
+    cofre.set("iface", json::Value::de_string(iface));
+
     cofre.set("api_url", json::Value::de_string(api_url));
 
     ConfigDominio cfg;
@@ -199,6 +273,8 @@ int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag)
         std::cout << "\n[SUCESSO] Dominio '" << dominio << "' gravado de forma"
                   << " criptografada (" << caminho << ") com tipos: "
                   << tipos_para_texto(types) << ".\n";
+        std::cout << "[INFO] Placa de rede para os IPs: "
+                  << (iface == "auto" ? "auto (rota padrao)" : iface) << ".\n";
         return EXIT_SUCCESS;
     }
     std::cerr << "\n[ERRO] Falha ao gravar o cofre criptografado.\n";
@@ -219,6 +295,10 @@ int cmd_listar(const std::string& caminho)
 
     std::cout << "\n--- Configuracoes Armazenadas ---\n";
     std::cout << "API URL: " << cofre.as_string("api_url", "N/A") << "\n";
+    const std::string iface = cofre.as_string("iface", "");
+    const bool iface_auto = iface.empty() || iface == "auto";
+    std::cout << "Placa de rede (IPs): "
+              << (iface_auto ? "auto (rota padrao)" : iface) << "\n";
     std::cout << "Dominios cadastrados:\n";
     if (cofre.tem("domains") && cofre.get("domains").is_objeto())
     {
@@ -302,15 +382,20 @@ int cmd_atualizar(const std::string& caminho)
         return EXIT_FAILURE;
     }
 
+    // Placa de rede selecionada para obter os IPs (chave ausente = auto).
+    const std::string iface = cofre.as_string("iface", "");
+
     // Carrega o estado persistido da ultima execucao (regras 4.1-4.3).
     EstadoExecucao estado;
     carregar_estado(ARQUIVO_ESTADO, estado);
 
-    std::cout << "[INFO] Obtendo IPs publicos (IPv4 e IPv6)...\n";
+    std::cout << "[INFO] Obtendo IPs publicos (IPv4 e IPv6)"
+              << (iface.empty() || iface == "auto" ? "" : " via " + iface)
+              << "...\n";
     std::string ipv4;
     std::string ipv6;
-    const bool tem_ipv4 = obter_ip_publico(ipv4);
-    const bool tem_ipv6 = obter_ipv6_publico(ipv6);
+    const bool tem_ipv4 = obter_ip_publico(ipv4, iface);
+    const bool tem_ipv6 = obter_ipv6_publico(ipv6, iface);
     if (!tem_ipv4 && !tem_ipv6)
     {
         // Falha total de obtencao: registra o erro no estado para que a
@@ -421,7 +506,7 @@ int cmd_atualizar(const std::string& caminho)
     {
         std::string erro;
         std::vector<ResultadoDominio> resultados;
-        if (!notificar_worker(api_url, par.first, par.second, resultados, erro))
+        if (!notificar_worker(api_url, par.first, par.second, resultados, erro, iface))
         {
             std::cerr << "[ERRO] Falha de comunicacao com o Worker (lote de "
                       << par.second.size() << " dominio(s)): " << erro << "\n";
@@ -483,6 +568,7 @@ int main(int argc, char* argv[])
         if (arg1 == "--add" || arg1 == "--update")
         {
             std::string tipos;
+            std::string iface;
             for (int i = 2; i < argc; ++i)
             {
                 const std::string arg = argv[i];
@@ -490,13 +576,17 @@ int main(int argc, char* argv[])
                 {
                     tipos = argv[++i];
                 }
+                else if (arg == "--iface" && i + 1 < argc)
+                {
+                    iface = argv[++i];
+                }
                 else
                 {
                     std::cerr << "[ERRO] Opcao desconhecida: " << arg << "\n";
                     return EXIT_FAILURE;
                 }
             }
-            return cmd_adicionar(ARQUIVO_VAULT, tipos);
+            return cmd_adicionar(ARQUIVO_VAULT, tipos, iface);
         }
         if (arg1 == "--list")
             return cmd_listar(ARQUIVO_VAULT);
