@@ -2,6 +2,15 @@
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
+## [Unreleased]
+
+### Changed
+
+- Documentação: exemplos passam a usar IPs de faixas reservadas de documentação
+  (RFC 5737 `203.0.113.9` / RFC 3849 `2001:db8::1`), eliminando IPs públicos
+  reais do histórico — ver
+  `docs/planner/ddns_manager_doc_remocao_ips_publicos.md`.
+
 ## [1.4.0] - 2026-09-26
 
 ### Added
