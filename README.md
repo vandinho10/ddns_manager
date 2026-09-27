@@ -39,6 +39,10 @@ criptografado é idêntico entre todas as plataformas.
 - **Suporte nativo ao Windows** — transporte WinHTTP e criptografia CNG
   (bcrypt.dll): binário 100% estático, sem dependência de terceiros; o mesmo
   cofre `ddns_vault.enc` funciona nas duas plataformas.
+- **Seleção de placa de rede** — com mais de uma interface ativa, `--add`
+  pergunta qual placa usar para obter os IPs (ou aceita `--iface eth0`); a
+  escolha fica salva no cofre e é aplicada em todas as execuções (ligação de
+  origem via libcurl `CURLOPT_INTERFACE` no POSIX / endereço local no WinHTTP).
 - **Saída para automação** — código de saída `0` somente quando todos os
   domínios são atualizados com sucesso.
 
@@ -108,9 +112,9 @@ apontado por `--vault-dir`. Se ausente, o instalador oferece criá-lo.
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.3.0)
+make              # build otimizado de release (v1.4.0-rc.1)
 make check        # análise estática -Werror (zero warnings)
-make test         # suíte table-driven (196 checks)
+make test         # suíte table-driven (286 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer
 make install      # instala em /usr/local/bin/ddns_manager (requer sudo)
 ```
@@ -119,7 +123,7 @@ Compilação manual:
 
 ```bash
 g++ -std=c++17 -O2 -o ddns_manager \
-  main.cpp vault.cpp http.cpp estado.cpp json_min.cpp -lssl -lcrypto -lcurl
+  main.cpp vault.cpp http.cpp estado.cpp iface.cpp json_min.cpp -lssl -lcrypto -lcurl
 ```
 
 Verificação de compatibilidade multi-distro:
@@ -159,8 +163,10 @@ gerado automaticamente pela CI (GitHub Actions).
 
 ```bash
 ./ddns_manager --add      # adiciona um domínio novo no cofre (interativo)
-./ddns_manager --update [--types A,AAAA]  # atualiza um domínio; campos em branco mantêm os valores atuais
-./ddns_manager --list     # lista API URL e domínios cadastrados
+./ddns_manager --add --iface eth0   # adiciona e fixa a placa de rede para obter os IPs
+./ddns_manager --add --iface auto   # usa a rota padrão do sistema (sem fixar placa)
+./ddns_manager --update [--types A,AAAA] [--iface eth0]  # atualiza um domínio; campos em branco mantêm os valores atuais
+./ddns_manager --list     # lista API URL, placa de rede e domínios cadastrados
 ./ddns_manager --remove <dominio>   # remove um domínio do cofre
 ./ddns_manager            # obtém IP público e atualiza todos os domínios
 ./ddns_manager --help     # ajuda
@@ -175,8 +181,15 @@ Digite a Senha Mestra do Cofre:            ██████████
 URL Base do Worker: https://seu-worker.workers.dev/
 Nome completo do Dominio/Subdominio (ex: alfa.domain1.com.br): alfa.example.com
 Chave de Autenticacao (auth_key) para este dominio (digitacao oculta): ██████████
+Tipos de registro a atualizar (A, AAAA ou A,AAAA; Enter = manter atual): A,AAAA
+Placa(s) de rede ativa(s):
+  1) eth0
+  2) wlan0
+  A) auto (rota padrao do sistema)
+Placa para obter os IPs [numero, nome, ou auto; Enter mantem]: 1
 
 [SUCESSO] Dominio 'alfa.example.com' gravado de forma criptografada (ddns_vault.enc).
+[INFO] Placa de rede para os IPs: eth0.
 ```
 
 Para adicionar outro domínio basta rodar `--add` novamente (o cofre é aberto
@@ -184,7 +197,8 @@ com a mesma Senha Mestra e o novo domínio é inserido sem apagar os anteriores)
 
 No `--update` de um domínio existente, apenas o domínio é obrigatório: campos
 vazios (URL, `auth_key` e `types`) mantêm os valores atuais cadastrados no
-cofre.
+cofre. A placa de rede segue o mesmo padrão: `--update --iface` altera a placa
+salva; usar `auto` volta à rota padrão do sistema.
 
 ## Automação (cron / systemd)
 

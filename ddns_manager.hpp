@@ -136,6 +136,23 @@ bool ip_publico_mudou(const EstadoExecucao& estado, const std::string& ipv4,
 bool decidir_acionar(const EstadoExecucao& estado_ant, bool mudou, bool erro,
                      EstadoExecucao& estado_novo);
 
+// --- Selecao de interface de rede (iface.cpp) ---
+
+// Lista as interfaces de rede ativas (UP, nao-loopback e com endereco IPv4
+// ou IPv6). Retorna false quando nao ha placas elegiveis. Nomes livres de
+// "auto" (rota padrao do sistema).
+bool listar_interfaces_ativas(std::vector<std::string>& nomes);
+
+// Valida o formato de um nome de interface informado via --iface (1-64 chars,
+// alfanumerico, '_', '-' ou '.'). Aceita a palavra reservada "auto".
+bool nome_iface_valido(const std::string& nome);
+
+// Obtem os enderecos locais (IPv4/IPv6) de uma interface nomeada. Preenche
+// apenas as familias presentes na placa; retorna true quando a interface
+// existe e possui ao menos um endereco.
+bool obter_endereco_local(const std::string& iface, std::string& ipv4,
+                          std::string& ipv6);
+
 // --- Transporte HTTP (http.cpp) ---
 
 // Um dominio e os IPs associados a ele (vazio = ausente, omitido no payload).
@@ -160,17 +177,21 @@ struct ResultadoDominio
 };
 
 // Requisicao GET simples com timeout. Retorna string vazia em caso de erro.
-std::string http_get(const std::string& url, long timeout_s);
+// "iface" (opcional) vincula a origem da conexao a uma interface de rede
+// (nome ou "auto"/vazio = rota padrao).
+std::string http_get(const std::string& url, long timeout_s,
+                     const std::string& iface = "");
 
 // Requisicao POST JSON. True quando o HTTP responde com 2xx.
 bool http_post_json(const std::string& url, const std::string& corpo,
-                    long timeout_s, long& codigo_http, std::string& resposta);
+                    long timeout_s, long& codigo_http, std::string& resposta,
+                    const std::string& iface = "");
 
 // Obtem o IP publico atual via https://api.ipify.org (valida IPv4).
-bool obter_ip_publico(std::string& ip);
+bool obter_ip_publico(std::string& ip, const std::string& iface = "");
 
 // Obtem o IP publico IPv6 atual via https://api6.ipify.org (valida IPv6).
-bool obter_ipv6_publico(std::string& ip);
+bool obter_ipv6_publico(std::string& ip, const std::string& iface = "");
 
 // Monta o corpo JSON do payload do Worker:
 // {"auth_key":..., "domains":{<dominio>:{ipv4?, ipv6?}}} (IPs vazios omitidos).
@@ -192,13 +213,16 @@ bool interpretar_resposta_worker(const std::string& resposta,
 bool notificar_worker(const std::string& api_url, const std::string& auth_key,
                       const std::vector<DadosDominio>& dominios,
                       std::vector<ResultadoDominio>& resultados,
-                      std::string& erro);
+                      std::string& erro, const std::string& iface = "");
 
 // --- Comandos CLI (main.cpp) ---
 
 // --add / --update: insere ou atualiza um dominio no cofre (interativo).
 // tipos_flag vazio = pergunta os tipos no terminal (ou usa A+AAAA).
-int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag);
+// iface_flag vazio = pergunta a placa de rede (somente com mais de uma); "auto"
+// ou "--iface auto" = rota padrao do sistema.
+int cmd_adicionar(const std::string& caminho, const std::string& tipos_flag,
+                  const std::string& iface_flag);
 
 // --list: lista API URL e dominios cadastrados.
 int cmd_listar(const std::string& caminho);

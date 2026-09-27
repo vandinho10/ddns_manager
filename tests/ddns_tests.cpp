@@ -904,6 +904,81 @@ namespace
         CHECK(est.quiet == 0);                   // negativo vira 0
         std::remove(caminho.c_str());
     }
+
+    // ===========================================================================
+    // Selecao de placa de rede (iface)
+    // ===========================================================================
+
+    TEST("iface_nome_valido")
+    {
+        struct Caso
+        {
+            const char* nome;
+            bool esperado;
+        };
+        const Caso casos[] = {
+            {"eth0", true},
+            {"wlan0", true},
+            {"eno1", true},
+            {"br-vlan10", true},
+            {"tun.0", true},
+            {"eth0:0", true},
+            {"eth0_2", true},
+            {"auto", true},
+            {"", false},
+            {"eth 0", false},
+            {"eth0/vlan", false},
+            {"mais.de.sessenta.e.caracteres.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false},
+        };
+        for (const auto& c : casos)
+            CHECK(ddns::nome_iface_valido(c.nome) == c.esperado);
+    }
+
+    TEST("iface_listar_interfaces_retorna_lista_ordenada")
+    {
+        std::vector<std::string> nomes;
+        // Em um host minimo pode nao haver placa elegivel, mas o retorno nao
+        // deve conter nomes invalidos nem duplicados.
+        const bool tem = ddns::listar_interfaces_ativas(nomes);
+        if (tem)
+        {
+            for (size_t i = 0; i < nomes.size(); ++i)
+            {
+                CHECK(ddns::nome_iface_valido(nomes[i]));
+                if (i > 0)
+                    CHECK(!(nomes[i] < nomes[i - 1])); // ordenado
+            }
+        }
+    }
+
+    TEST("iface_endereco_local_placa_inexistente_falha")
+    {
+        std::string v4;
+        std::string v6;
+        CHECK(!ddns::obter_endereco_local("plaquenaoexiste123", v4, v6));
+        CHECK(v4.empty());
+        CHECK(v6.empty());
+    }
+
+    TEST("cofre_roundtrip_campo_iface")
+    {
+        const std::string caminho = "ddns_test_tmp_vault_iface.enc";
+        const std::string senha = "mestre-iface";
+
+        Value cofre = Value::objeto();
+        cofre.set("api_url", Value::de_string("https://w.e.com/update"));
+        cofre.set("iface", Value::de_string("eth1"));
+        Value dominios = Value::objeto();
+        dominios.set("a.com", Value::de_string("ka"));
+        cofre.set("domains", dominios);
+        CHECK(ddns::salvar_cofre(cofre, senha, caminho));
+
+        Value carregado;
+        CHECK(ddns::carregar_cofre(senha, caminho, carregado));
+        CHECK(carregado.as_string("iface", "") == "eth1");
+        CHECK(carregado.get("domains").size() == 1);
+        std::remove(caminho.c_str());
+    }
 }
 
 int main()

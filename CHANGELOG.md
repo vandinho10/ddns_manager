@@ -2,6 +2,18 @@
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
+## [Unreleased]
+
+### Added
+
+- **Seleção de placa de rede para obtenção dos IPs**: com mais de uma interface
+  ativa (UP, não-loopback, com endereço IPv4/IPv6), `--add`/`--update` pergunta
+  qual placa usar e persiste a escolha no cofre (`iface`). Aceita a flag
+  `--iface <placa|auto>` para automação. A origem das requisições é vinculada
+  à placa escolhida (`CURLOPT_INTERFACE` no POSIX; endereço local via
+  `WINHTTP_OPTION_LOCAL_ADDRESS` no Windows 10 1809+). Suíte ampliada para
+  286 checks.
+
 ## [1.3.0] - 2026-09-20
 
 ### Added

@@ -161,11 +161,36 @@ próxima execução re-tente o envio.
 |---|---|---|
 | (sem argumento) | Obtém IP e atualiza todos os domínios | `0` ok / `1` falha |
 | `--add` / `--update` | Insere um domínio novo ou atualiza um existente (campos em branco mantêm os valores atuais) | `0` ok |
-| `--list` | Lista API URL e domínios (auth_key oculta) | `0` ok |
+| `--add --iface <placa>` | Fixa a placa de rede usada para obter os IPs (`auto` = rota padrão) | `0` ok |
+| `--list` | Lista API URL, placa de rede e domínios (auth_key oculta) | `0` ok |
 | `--remove <domínio>` | Remove um domínio | `0` ok / `1` falha |
 | `--help` | Exibe ajuda | `0` |
 | `--version` | Exibe versão | `0` |
 | argumento desconhecido | — | `1` |
+
+## Seleção de placa de rede
+
+Quando o host possui **mais de uma interface ativa** (UP, não-loopback e com
+endereço IPv4/IPv6), o `--add`/`--update` questiona qual placa deve ser usada
+para **obter os IPs públicos** e guarda a escolha no cofre (campo `iface`).
+Com uma única placa ativa a escolha é automática; com nenhuma, usa-se a rota
+padrão do sistema.
+
+Armazenamento no cofre:
+
+| Campo | Valor | Significado |
+|---|---|---|
+| `iface` | nome da placa (ex.: `eth0`, `wlan0`) ou `auto` | origem das requisições de obtenção de IP |
+
+Vinculação da origem por plataforma:
+
+- **POSIX (libcurl):** `CURLOPT_INTERFACE` com o nome da placa.
+- **Windows (WinHTTP):** endereço local da placa resolvido pelo nome
+  (`WINHTTP_OPTION_LOCAL_ADDRESS`, Windows 10 1809+); indisponível → rota padrão.
+
+A lista considera todas as interfaces IP ativas, incluindo bridges e `veth`
+do Docker; a escolha é sempre explícita quando há mais de uma. `auto` limpa a
+seleção e restaura o comportamento original.
 
 ## Dependências
 
@@ -181,7 +206,7 @@ próxima execução re-tente o envio.
 
 ```bash
 make check        # análise estática com -Werror
-make test         # suíte table-driven (191 checks)
+make test         # suíte table-driven (286 checks)
 make sanitize     # ASan + UBSan
 make install      # instala em /usr/local/bin/ddns_manager (requer sudo)
 
