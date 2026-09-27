@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
-## [Unreleased]
+## [1.4.0] - 2026-09-26
 
 ### Added
 
@@ -13,9 +13,13 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
   à placa escolhida (`CURLOPT_INTERFACE` no POSIX; endereço local via
   `WINHTTP_OPTION_LOCAL_ADDRESS` no Windows 10 1809+). Suíte ampliada para
   286 checks.
-- **Build Windows (v1.4.0-rc.2)**: enumeração das interfaces via
-  `GetAdaptersAddresses` usa `AdapterName` (portável entre mingw e MSVC),
-  corrigindo o v1.4.0-rc.1; link de `iphlpapi` e ordem de includes do Winsock.
+
+### Fixed
+
+- **Build Windows**: enumeração das interfaces via `GetAdaptersAddresses` usa
+  `AdapterName` (portável entre mingw e MSVC), em substituição a `FriendlyName`
+  (WCHAR no MSVC, CHAR no mingw); adicionado o link de `iphlpapi` e a ordem
+  correta de includes do Winsock.
 
 ## [1.3.0] - 2026-09-20
 

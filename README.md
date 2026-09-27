@@ -112,7 +112,7 @@ apontado por `--vault-dir`. Se ausente, o instalador oferece criá-lo.
 Pré-requisitos: `g++` (C++17), headers do **OpenSSL** e da **libcurl**.
 
 ```bash
-make              # build otimizado de release (v1.4.0-rc.2)
+make              # build otimizado de release (v1.4.0)
 make check        # análise estática -Werror (zero warnings)
 make test         # suíte table-driven (286 checks)
 make sanitize     # AddressSanitizer + UndefinedBehaviorSanitizer
