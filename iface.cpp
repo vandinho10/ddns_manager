@@ -9,8 +9,8 @@
 #include <algorithm>
 
 #ifdef _WIN32
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
 #include <cstring>
@@ -79,14 +79,10 @@ bool listar_interfaces_ativas(std::vector<std::string>& nomes)
         if (!tem_endereco)
             continue;
 
-        char nome[MAX_ADAPTER_ADDRESS_LENGTH + 1] = "";
-        WideCharToMultiByte(CP_UTF8, 0, p->FriendlyName, -1, nome,
-                            static_cast<int>(sizeof(nome) - 1), nullptr, nullptr);
-        if (nome[0] == '\0')
-            WideCharToMultiByte(CP_UTF8, 0, p->AdapterName, -1, nome,
-                                static_cast<int>(sizeof(nome) - 1), nullptr, nullptr);
-        if (nome[0] != '\0')
-            nomes.push_back(nome);
+        // AdapterName e PCHAR em todas as toolchains (mingw e MSVC), ao
+        // contrario de FriendlyName (WCHAR no MSVC, CHAR no mingw).
+        if (p->AdapterName != nullptr && p->AdapterName[0] != '\0')
+            nomes.push_back(p->AdapterName);
     }
 #else
     struct ifaddrs* lista = nullptr;
@@ -141,12 +137,7 @@ bool obter_endereco_local(const std::string& iface, std::string& ipv4,
 
     for (PIP_ADAPTER_ADDRESSES p = aa; p != nullptr; p = p->Next)
     {
-        char nome[MAX_ADAPTER_ADDRESS_LENGTH + 1] = "";
-        WideCharToMultiByte(CP_UTF8, 0, p->FriendlyName, -1, nome,
-                            static_cast<int>(sizeof(nome) - 1), nullptr, nullptr);
-        if (nome[0] == '\0')
-            WideCharToMultiByte(CP_UTF8, 0, p->AdapterName, -1, nome,
-                                static_cast<int>(sizeof(nome) - 1), nullptr, nullptr);
+        const std::string nome = (p->AdapterName != nullptr) ? std::string(p->AdapterName) : "";
         if (iface != nome)
             continue;
 

@@ -4,7 +4,7 @@ WARN     := -Wall -Wextra -Wpedantic
 OPTFLAGS := -O2
 DBGFLAGS := -O0 -g
 
-VERSION  := 1.4.0-rc.1
+VERSION  := 1.4.0-rc.2
 TARGET   := ddns_manager
 TESTBIN  := tests/test_runner
 TESTBIN_SAN := tests/test_runner_san
@@ -15,9 +15,10 @@ TARGET_OS ?= $(shell uname -s)
 
 # Windows (MinGW): binario 100% estatico com transporte WinHTTP nativo e
 # criptografia CNG (bcrypt.dll). ws2_32: inet_pton/sockaddr no vinculo de
-# interface. POSIX: libcurl dinamico + OpenSSL EVP.
+# interface. iphlpapi: GetAdaptersAddresses (listagem de placas). POSIX:
+# libcurl dinamico + OpenSSL EVP.
 ifeq ($(TARGET_OS),Windows_NT)
-  LIBS := -static -static-libgcc -static-libstdc++ -lwinhttp -lbcrypt -lws2_32
+  LIBS := -static -static-libgcc -static-libstdc++ -lwinhttp -lbcrypt -lws2_32 -liphlpapi
 else
   LIBS := -lcurl -lssl -lcrypto
 endif
