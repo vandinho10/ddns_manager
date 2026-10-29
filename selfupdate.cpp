@@ -144,13 +144,33 @@ void tornar_executavel(const fs::path &p)
 #endif
 }
 
+// Aspas para o shell da plataforma: no sh, aspas simples com ' interno escapado;
+// no cmd.exe, aspas duplas (caminho com " é recusado).
+bool aspas_shell(const std::string &s, std::string &out)
+{
+#ifdef _WIN32
+    if (s.find('"') != std::string::npos)
+        return false;
+    out = "\"" + s + "\"";
+#else
+    out = "'";
+    for (char c : s)
+        out += (c == '\'') ? std::string("'\\''") : std::string(1, c);
+    out += "'";
+#endif
+    return true;
+}
+
 // Roda `<binario> --version`; o novo binário só fica se responder com sucesso.
 bool binario_responde(const fs::path &bin)
 {
+    std::string q;
+    if (!aspas_shell(bin.string(), q))
+        return false;
 #ifdef _WIN32
-    const std::string cmd = "\"\"" + bin.string() + "\" --version >nul 2>nul\"";
+    const std::string cmd = "\"" + q + " --version >nul 2>nul\"";
 #else
-    const std::string cmd = "'" + bin.string() + "' --version >/dev/null 2>&1";
+    const std::string cmd = q + " --version >/dev/null 2>&1";
 #endif
     return std::system(cmd.c_str()) == 0;
 }
