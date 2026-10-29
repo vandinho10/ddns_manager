@@ -1,6 +1,7 @@
 // Testes baseados em tabela do ddns_manager: parser JSON, criptografia do
 // cofre (AES-256-CBC + PBKDF2) e validacao de IPv4.
 #include "ddns_manager.hpp"
+#include "selfupdate.hpp"
 #include "test_framework.hpp"
 
 #include <cstdio>
@@ -979,6 +980,67 @@ namespace
         CHECK(carregado.get("domains").size() == 1);
         std::remove(caminho.c_str());
     }
+}
+
+// ---------------------------------------------------------------------------
+// selfupdate (compartilhado entre os compilados)
+// ---------------------------------------------------------------------------
+
+TEST("selfupdate: sha256 de vetores conhecidos (FIPS 180-4)")
+{
+    CHECK(selfupdate::sha256_hex("") ==
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    CHECK(selfupdate::sha256_hex("abc") ==
+          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    CHECK(selfupdate::sha256_hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+          "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    CHECK(selfupdate::sha256_hex(std::string(1000000, 'a')) ==
+          "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
+TEST("selfupdate: semver aceita prefixo v e ignora sufixo rc")
+{
+    const auto v = selfupdate::parse_semver("v1.12.3-rc.1");
+    CHECK(v.ok && v.major == 1 && v.minor == 12 && v.patch == 3);
+    CHECK(!selfupdate::parse_semver("1.2").ok);
+    CHECK(!selfupdate::parse_semver("1.2.x").ok);
+    CHECK(!selfupdate::parse_semver("").ok);
+    CHECK(selfupdate::cmp_semver(selfupdate::parse_semver("1.2.10"),
+                                 selfupdate::parse_semver("1.10.0")) < 0);
+    CHECK(selfupdate::cmp_semver(selfupdate::parse_semver("2.0.0"),
+                                 selfupdate::parse_semver("v2.0.0")) == 0);
+}
+
+TEST("selfupdate: assets pelo basename de browser_download_url")
+{
+    const std::string json =
+        R"({"tag_name":"v1.3.0","assets":[{"name":"x","uploader":{"login":"a"},)"
+        R"("browser_download_url":"https://github.com/o/r/releases/download/v1.3.0/ddns_manager-linux-aarch64"},)"
+        R"({"browser_download_url":"https://github.com/o/r/releases/download/v1.3.0/SHA256SUMS"}]})";
+    const auto a = selfupdate::json_assets(json);
+    CHECK(a.size() == 2);
+    if (a.size() == 2)
+    {
+        CHECK(a[0].first == "ddns_manager-linux-aarch64");
+        CHECK(a[1].first == "SHA256SUMS");
+    }
+    CHECK(selfupdate::json_string_field(json, "tag_name") == "v1.3.0");
+}
+
+TEST("selfupdate: hash_em_sumas acha o arquivo exato")
+{
+    const std::string h(64, 'a');
+    const std::string sumas = std::string(64, 'b') + "  ddns_manager-linux-x86_64\n" + h +
+                              " *ddns_manager-linux-aarch64\n" + "zz  ddns_manager-windows-x86.exe\n";
+    CHECK(selfupdate::hash_em_sumas(sumas, "ddns_manager-linux-aarch64") == h);
+    CHECK(selfupdate::hash_em_sumas(sumas, "ddns_manager-linux-arm32").empty());
+    CHECK(selfupdate::hash_em_sumas(sumas, "ddns_manager-windows-x86.exe").empty());
+}
+
+TEST("selfupdate: nome do artefato segue o padrao do release.yml")
+{
+    const std::string n = selfupdate::nome_artefato("ddns_manager");
+    CHECK(n.rfind("ddns_manager-linux-", 0) == 0 || n.rfind("ddns_manager-windows-", 0) == 0);
 }
 
 int main()

@@ -32,11 +32,11 @@ jobs:
             cxx: i686-w64-mingw32-g++
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up QEMU
         if: matrix.mode == 'linux'
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Build Linux (${{ matrix.arch }})
         if: matrix.mode == 'linux'
@@ -62,7 +62,7 @@ jobs:
           ls -lh ddns_manager-${{ matrix.arch }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ddns_manager-${{ matrix.arch }}
           path: |
@@ -73,16 +73,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate SHA256SUMS
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: artifacts/*
           generate_release_notes: true

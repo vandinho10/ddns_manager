@@ -1,5 +1,6 @@
 // Ponto de entrada e comandos de linha de comando do ddns_manager.
 #include "ddns_manager.hpp"
+#include "selfupdate.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -22,6 +23,7 @@ void imprimir_ajuda(const char* prog)
     std::cout << "  " << prog << " --remove <dom> Remove um dominio do cofre.\n";
     std::cout << "  " << prog << " --help         Exibe esta ajuda.\n";
     std::cout << "  " << prog << " --version      Exibe a versao.\n";
+    std::cout << "  " << prog << " update [check] Atualiza o binario pela ultima release (SHA256 obrigatorio).\n";
 }
 
 void imprimir_versao(const char* prog)
@@ -564,6 +566,22 @@ int main(int argc, char* argv[])
         {
             imprimir_versao(argv[0]);
             return EXIT_SUCCESS;
+        }
+        // Autoatualizacao do binario (nao confundir com --update, que altera um dominio).
+        if (arg1 == "update")
+        {
+            selfupdate::Contexto ctx;
+            ctx.app = "ddns_manager";
+            ctx.versao = DDNS_VERSION;
+            ctx.repo_padrao = "vandinho10/ddns_manager";
+            ctx.env_repo = "DDNS_UPDATE_REPO";
+            ctx.http_get = [](const std::string& url, std::string& erro) {
+                std::string corpo = http_get(url, 120);
+                if (corpo.empty())
+                    erro = "sem resposta de " + url;
+                return corpo;
+            };
+            return selfupdate::comando_update(ctx, argc, argv, 2);
         }
         if (arg1 == "--add" || arg1 == "--update")
         {

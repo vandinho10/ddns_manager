@@ -4,6 +4,24 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-29
+
+### Added
+
+- **`ddns_manager update`**: autoatualização pela última release do GitHub
+  (`update check` retorna 0/2/1). SHA256 obrigatório contra o `SHA256SUMS` da
+  release, backup `.old` e rollback automático se o novo binário não
+  responder a `--version`. Módulo `selfupdate` compartilhado com getip e
+  invpush.
+- `scripts/install.sh`: confere o `SHA256SUMS` do asset baixado e cria o
+  `ddns_manager-update.timer` (diário); `--uninstall` remove os dois timers.
+- CI: a release publica `SHA256SUMS`.
+
+### Changed
+
+- `make install` instala em `~/.local/bin` por padrão (`BINDIR` muda o destino).
+- Builds Windows com `-Wl,--no-insert-timestamp`, para hashes reprodutíveis.
+
 ### Changed
 
 - Documentação: exemplos passam a usar IPs de faixas reservadas de documentação
