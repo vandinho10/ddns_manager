@@ -229,6 +229,21 @@ janela pós-evento. Falhas de obtenção de IP ou de comunicação com o Worker
 registram erro no estado, abrindo a janela pós-evento para nova tentativa nas
 execuções seguintes.
 
+## Autoatualização
+
+```bash
+ddns_manager update check   # 0 = atualizado, 2 = há versão nova, 1 = erro
+ddns_manager update         # pergunta antes de instalar
+ddns_manager update --quiet # sem perguntas; usado pelo ddns_manager-update.timer
+```
+
+Não confundir com `--update`, que altera um domínio do cofre. O binário só é
+trocado depois de conferir o SHA256 contra o `SHA256SUMS` da release (release
+sem esse arquivo é recusada); o anterior fica em `ddns_manager.old` e volta
+sozinho se o novo não responder a `--version`. O `scripts/install.sh` cria o
+`ddns_manager-update.timer` (diário) junto com o timer principal.
+`DDNS_UPDATE_REPO=owner/repo` troca a origem (testes).
+
 ## Segurança
 
 - O cofre `ddns_vault.enc` **não é texto puro** e é criado com permissão

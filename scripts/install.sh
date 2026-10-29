@@ -263,6 +263,20 @@ download_asset() {
       || die "falha ao baixar $asset (verifique a tag/arquitetura)"
   fi
   [[ -s "$destdir/$asset" ]] || die "asset baixado esta vazio: $asset"
+  verify_sha256 "$asset" "$destdir"
+}
+
+# Confere o asset contra o SHA256SUMS da release (publicado a partir da v1.5.0).
+verify_sha256() {
+  local asset="$1" destdir="$2"
+  local url="https://github.com/$REPO/releases/download/$TAG/SHA256SUMS"
+  if ! curl -fsSL --retry 3 --connect-timeout 15 -o "$destdir/SHA256SUMS" "$url" 2>/dev/null; then
+    warn "release $TAG sem SHA256SUMS; asset nao verificado"
+    return 0
+  fi
+  ( cd "$destdir" && grep -E "[[:space:]]\*?${asset}\$" SHA256SUMS | sha256sum -c --status - ) \
+    || die "SHA256 nao confere para $asset"
+  ok "SHA256 conferido ($asset)"
 }
 
 # ------------------------------------------------------------------ #
@@ -362,6 +376,33 @@ WantedBy=timers.target
 EOF
 }
 
+# Autoatualizacao diaria do binario (ddns_manager update --quiet, SHA256 obrigatorio).
+write_update_units() {
+  write_text "$SYSTEMD_USER_DIR/$SERVICE_NAME-update.service" 0644 <<EOF
+[Unit]
+Description=Autoatualizacao do ddns_manager (GitHub Releases)
+Documentation=https://github.com/$REPO
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$BIN_DIR/$BIN_NAME update --quiet
+EOF
+  write_text "$SYSTEMD_USER_DIR/$SERVICE_NAME-update.timer" 0644 <<EOF
+[Unit]
+Description=Verificacao diaria de nova versao do ddns_manager
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
 install_systemd() {
   if (( DRY_RUN )); then
     log "dry-run: daemon-reload + enable --now $SERVICE_NAME.timer"
@@ -369,6 +410,7 @@ install_systemd() {
   fi
   systemctl --user daemon-reload
   systemctl --user enable --now "$SERVICE_NAME.timer"
+  systemctl --user enable --now "$SERVICE_NAME-update.timer"
   if (( ! NO_LINGER )); then
     loginctl enable-linger "$USER" >/dev/null 2>&1 \
       && ok "linger habilitado para $USER (roda sem sessao aberta)" \
@@ -481,6 +523,7 @@ do_install() {
   if systemd_user_available; then
     write_service
     write_timer
+    write_update_units
     install_systemd
     ok "systemd user timer ativo (intervalo de ${INTERVAL_MIN} min)"
     if (( ! NO_TEST_RUN && ! DRY_RUN )); then
@@ -502,9 +545,10 @@ do_uninstall() {
     if (( DRY_RUN )); then
       log "dry-run: desabilitaria/removeria unidades systemd"
     else
-      systemctl --user disable --now "$SERVICE_NAME.timer" >/dev/null 2>&1 || true
+      systemctl --user disable --now "$SERVICE_NAME.timer" "$SERVICE_NAME-update.timer" >/dev/null 2>&1 || true
       systemctl --user stop "$SERVICE_NAME.service" >/dev/null 2>&1 || true
-      rm -f -- "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" "$SYSTEMD_USER_DIR/$SERVICE_NAME.service"
+      rm -f -- "$SYSTEMD_USER_DIR/$SERVICE_NAME.timer" "$SYSTEMD_USER_DIR/$SERVICE_NAME.service" \
+        "$SYSTEMD_USER_DIR/$SERVICE_NAME-update.timer" "$SYSTEMD_USER_DIR/$SERVICE_NAME-update.service"
       systemctl --user daemon-reload >/dev/null 2>&1 || true
       ok "unidades systemd removidas"
     fi
