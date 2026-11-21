@@ -356,6 +356,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
+# O estado (ddns_state.json) e gravado no diretorio do cofre; sem isto o sandbox
+# o deixa somente leitura e o Worker e acionado em toda execucao.
+ReadWritePaths=$VAULT_DIR
 EOF
 }
 
